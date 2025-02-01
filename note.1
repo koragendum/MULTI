@@ -1,0 +1,27 @@
+fn fib(n)
+  ※  returns the smallest Fibonacci number not less than n
+  x = ⟨1, 1⟩
+  y = x[0] + x[1]
+  if y < n
+    x.1 = ⟨y, x.1⟩  ※  x.1 is an abbreviation for x:[−1]
+    die
+  end
+  ret y
+end
+
+※  x:+1 = x + x:−1  ※  if a future value is set and a mismatch later occurs,
+                       the universe collapses and disappears
+※  x:−1 = x:+1 − x
+
+
+fn for(count, f)
+  ※  calls f for n = 0, ..., count−1
+  n = 0
+  if n ≥ count    ※  this is not a superfluous check
+    die
+  end
+  n.1 = n + 1     ※  fork and then continue
+  f(n)            ※  n is copied (so assignments to n in f don’t affect this scope)
+end
+
+※  f(&n)          ※  n is not copied

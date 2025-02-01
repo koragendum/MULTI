@@ -1,0 +1,48 @@
+(a) value   = ...
+(b) value:0 = true      — forks and rewrites (a) to value = true  in forked thread
+(c) value:0 = false     — forks and rewrites (a) to value = false in forked thread
+(d) value   = false
+
+(a) value    = ...
+(b) value:+1 = true     — requires rhs of (e) to be true
+(c) value:+1 = false    — requires rhs of (e) to be false
+(d) ...                 — does this execute?
+(e) value    = false    — dies (universe collapses)
+
+
+a = (x = 1)             — illegal (assignment is not an expression)
+
+
+
+               value on rhs         assignment overwrites / constrains
+
+     code      x   x:−1    x:+1     x:0 = ...     x:+1 = ...
+
+(0)            ?     ?     a        (?) ?         (1) a
+
+(1)  x = a     ?     ?     a
+
+(2)            a     ?     b        (1) a         (3) b
+
+(3)  x = b     a     ?     b
+
+(4)            b     a     c        (3) b         (5) c
+
+(5)  x = c     b     a     c
+
+(6)            c     b     d        (5) c         (7) d
+
+(7)  x = d     c     b     d
+
+(8)            d     c     ?        (7) d         (?) ?
+
+
+a constraint on the future is a ⟩⟩⟩ prophecy ⟨⟨⟨
+
+
+can send oracle backwards using tuple
+
+x = ⟨1, nil⟩    # in fork, has information from the future (snd elem of tuple is y)
+y = ...
+x:0 = ⟨x, y⟩
+
