@@ -1,0 +1,93 @@
+Program runs repeatedly, can inspect past or future (or parallel,
+  depending on how you want to think about it) timelines
+
+x@1   value of x in previous life at this point
+x@0   (or simply x) current value of x in this life
+x@+1  value of x at this point in the... next life?
+        (pause, start running next life until caught up)
+
+────────
+
+“if x will be”    (does not necessarily imply time travelling)
+“if x was”
+
+────────
+
+Program moves in discrete steps
+Can examine or query the program state at previous steps
+
+────────
+
+Rewriting history triggers reëxecution from that point
+Does this overwrite history? (but the overwriting is recorded, could be undone)
+Does this fork history?
+
+────────
+
+Every object/name/&c has a chain or digraph attached
+Can access previous value (before latest assignment)
+           current value (after latest assignment)
+           next value (after next assignment)
+             (using this before it’s known results
+             in a deferred computation or thunk)
+
+────────
+
+x <- a
+x <- b
+
+x@0     => b
+x@1     => a
+x@2     => undefined
+
+y <- x@−1
+x <- y      => anything
+
+────
+
+y <- x@−2     => c
+x <- y        => c
+x <- c
+
+────
+
+#x    history of x    (indexed from the time #x was taken? or indexed from current time?)
+                                                              ^ this
+                      changes when x is on LHS
+#x[0] = x@0
+
+##x   history of history of x
+                      also changes when x is on LHS
+
+────
+
+maybe also snapshot current time 't
+and use 't for absolute rather than relative indexing
+and then write #x['t] rather than #x[3]
+
+────
+
+Can you copy history? transfer history? (#y <- #x)
+
+────
+
+Modifying history causes forking (parallel universe)
+“Jump to point in program” is sugar for mutate history (forking) and kill yourself
+
+────────
+
+Most recent operation in program (function call)
+Most recent operands in program (arguments to function call)
+Parent call operands
+
+“jump back 10 steps”
+  (would result in same execution except now “prev — ” is different
+  so execution diverges)
+
+────────
+
+Family tree of objects!
+Can display every value and where it came from
+(This also makes it possible to recompute the value if its parents change)
+
+Can change history of inputs (can use a function multiple times this way)
