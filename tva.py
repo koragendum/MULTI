@@ -47,32 +47,46 @@ class BinaryExpression:
             return None
         match self.operator:
             case "add":
+                pass
                 # todo - int add or tuple concat
             case "sub":
+                pass
                 # todo - int sub
             case "mul":
+                pass
                 # todo - int mul
             case "div":
+                pass
                 # todo - int div
             case "mod":
+                pass
                 # todo - int mod
             case "and":
+                pass
                 # todo
             case "or":
+                pass
                 # todo
             case "gt":
+                pass
                 # todo
             case "lt":
+                pass
                 # todo
             case "geq":
+                pass
                 # todo
             case "leq":
+                pass
                 # todo
             case "eq":
+                pass
                 # todo
             case "neq":
+                pass
                 # todo
             case "idx":
+                pass
                 # todo - tuple index (left is tuple, right is int?)
             case _:
                 return None
@@ -96,7 +110,7 @@ class Literal:
         return self
 
     def __repr__(self):
-        return f"Literal(value={self.value})"
+        return f"Literal(value={self.value}, kind={self.kind})"
 
     def __eq__(self, other):
         return isinstance(other, Literal) and self.value == other.value
@@ -225,8 +239,8 @@ def run_code(code, start_index=0, env=Environment()):
 # x:+1 = 2
 # x = 2
 code = [
-    Assignment(Variable("x", 0), Literal(1), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2), Assignment.PROPHECY),
-    Assignment(Variable("x", 1), Literal(2), Assignment.MUTATION)]
+    Assignment(Variable("x", 0), Literal(1, int), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, int), Assignment.PROPHECY),
+    Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION)]
 env = Environment()
 run_code(code)
