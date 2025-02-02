@@ -99,22 +99,8 @@ class BinaryExpression:
                 assert kind == 'int'
                 return Literal(left.value <= right.value, 'bool')
             case "eq":
-                if kind == 'tuple':
-                    if len(left) != len(right):
-                        return Literal(False, 'bool')
-                    for l, r in zip(left, right):
-                        if l != r:
-                            return Literal(False, 'bool')
-                    return Literal(True, 'bool')
                 return Literal(left == right, 'bool')
             case "neq":
-                if kind == 'tuple':
-                    if len(left) != len(right):
-                        return Literal(True, 'bool')
-                    for l, r in zip(left, right):
-                        if l != r:
-                            return Literal(True, 'bool')
-                    return Literal(False, 'bool')
                 return Literal(left != right, 'bool')
             case _:
                 return None
@@ -158,21 +144,31 @@ class Literal:
         return isinstance(other, Literal) and self.value == other.value
 
 class Tuple:
-    def __init__(self, elements):
+    def __init__(self, elements, concrete=False):
         self.elements = elements
         self.kind = 'tuple'
+        self.concrete = concrete
 
     def __len__(self):
         return len(self.elements)
 
+    def __eq__(self, other):
+        if not isinstance(other, Tuple):
+            return False
+        assert self.concrete
+        assert other.concrete
+        return other.elements == self.elements
+
     def eval(self, env):
+        if self.concrete:
+            return self
         values = []
         for elem in self.elements:
             value = elem.eval(env)
             if value is None:
                 return None
             values.append(value)
-        return values
+        return Tuple(values, concrete=True)
 
 
 class CodeHistoryElement:
