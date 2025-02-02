@@ -19,42 +19,94 @@ class Variable:
         # Indexes are ints. These should be absolute coming from parser.
         self.index = index
 
-    # Should return either a Literal if it's evaluable, or return None if it isn't.
     def eval(self, env):
         pass
 
 # Note: code history needs to keep track of unresolved prophecies at each point
 # so that forks that violate prophecies immediately die.
 
-# + - * / % and or < > == != <= >= . (tuple indexing)
-class BinaryOperator:
+# add sub mul div mod
+# and or
+# gt lt geq leq eq neq
+# idx
+class BinaryExpression:
     def __init__(self, left, right, operator):
         self.left = left
         self.right = right
         self.operator = operator
 
     def eval(self, env):
-        pass
+        left = self.left.eval(env)
+        right = self.right.eval(env)
+        if left is None or right is None:
+            return None
+        match self.operator:
+            case "add":
+                # todo - int add or tuple concat
+            case "sub":
+                # todo - int sub
+            case "mul":
+                # todo - int mul
+            case "div":
+                # todo - int div
+            case "mod":
+                # todo - int mod
+            case "and":
+                # todo
+            case "or":
+                # todo
+            case "gt":
+                # todo
+            case "lt":
+                # todo
+            case "geq":
+                # todo
+            case "leq":
+                # todo
+            case "eq":
+                # todo
+            case "neq":
+                # todo
+            case "idx":
+                # todo - tuple index (left is tuple, right is int?)
+            case _:
+                return None
 
-# - + not
-class UnaryOperator:
+
+# neg not len
+class UnaryExpression:
     def __init__(self, operand, operator):
         self.operand = operand
 
-# Undefined / Boolean / Character / Integer
+# undefined
+# bool
+# atom
+# int
 class Literal:
-    def __init__(self, value):
+    def __init__(self, value, kind):
         self.value = value
+        self.kind = kind
 
     def eval(self, env):
         return self.value
 
 class Tuple:
-    def __init__(self, values):
-        self.values = values
+    def __init__(self, elements):
+        self.elements = elements
 
     def eval(self, env):
-        return [value.eval(env) for value in self.values]
+        values = []
+        for elem in self.elements:
+            value = elem.eval(env)
+            if value is None:
+                return None
+            values.append(value)
+        return values
+
+# Literal.eval(...) returns self
+
+# eval returns a Literal or Tuple if the value is known
+#   and None otherwise
 
 class CodeHistoryElement:
     def __init__(self):
