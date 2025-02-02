@@ -6,10 +6,10 @@ class Assignment:
     REVISION = 1
     PROPHECY = 2
 
-    def __init__(self):
-        self.left = None
-        self.right = None
-        self.kind = Assignment.MUTATION
+    def __init__(self, left, right, kind):
+        self.left = left
+        self.right = right
+        self.kind = kind
 
 # X or X:N
 class Variable:
@@ -20,7 +20,12 @@ class Variable:
         self.index = index
 
     def eval(self, env):
-        pass
+        if self.name in env.var_histories and self.index < len(env.var_histories[self.name]):
+            return env.var_histories[self.name][self.index].expression.eval(env)
+        return None
+        
+    def __repr__(self):
+        return f"Variable(name={self.name}, index={self.index})"
 
 # Note: code history needs to keep track of unresolved prophecies at each point
 # so that forks that violate prophecies immediately die.
@@ -88,7 +93,13 @@ class Literal:
         self.kind = kind
 
     def eval(self, env):
-        return self.value
+        return self
+
+    def __repr__(self):
+        return f"Literal(value={self.value})"
+
+    def __eq__(self, other):
+        return isinstance(other, Literal) and self.value == other.value
 
 class Tuple:
     def __init__(self, elements):
@@ -115,10 +126,16 @@ class CodeHistoryElement:
         self.prophecies = []
         self.pending_forks = []
 
+    def __str__(self):
+        return f"CodeHistoryElem<\nVar History Indexes: {self.var_history_indexes},\nProphecies: {[str(proph) for proph in self.prophecies]},\nPending Forks: {self.pending_forks}>"
+
 class VarHistoryElement:
     def __init__(self, expression, code_index):
         self.expression = expression
         self.code_index = code_index
+        
+    def __str__(self):
+        return f"VarHistoryElem<Expression: {self.expression}, Code Index: {self.code_index}>"
 
 class Environment:
     def __init__(self):
@@ -133,21 +150,32 @@ class Environment:
 
         new_env = Environment()
         new_env.code_history = env.code_history[:code_index + 1]
-        new_env.var_histories = {var: history[:new_env.code_history.var_history_indexes[var] + 1] for var, history in env.var_histories.items()}
+        code = env.code_history[code_index]
+        new_env.var_histories = {var: history[:code.var_history_indexes[var] + 1] for var, history in env.var_histories.items()}
         new_env.var_histories[var_name][var_index].expression = new_value
         return new_env, code_index
+    
+    def __str__(self):
+        def str_var_histories(var_histories):
+            return f"{{{",\n   ".join(f"{var}:\t[{",".join(str(elm) for elm in hist)}]" for var, hist in var_histories.items())}}}"
+        return f"Environment:\n" + \
+            f"Variable Histories:\n  {str_var_histories(self.var_histories)}\n" + \
+            f"Code History:\n  [{",\n   ".join(str(elem) for elem in self.code_history)}]"
 
 def run_code(code, start_index=0, env=Environment()):
-    for stmt in code[start_index:]:
+    for i, stmt in enumerate(code[start_index:]):
         next_code_history = CodeHistoryElement()
         match stmt.kind:
             case Assignment.MUTATION:
                 assert stmt.left.index == 0 or \
                     (stmt.left.name in env.var_histories and len(env.var_histories[stmt.left.name]) == stmt.left.index), \
                     "Mutation to event in wrong timeline position."
-                
-                # Try to eval lhs. If it can't be evaluated then just take it as is.
-                env.var_histories[stmt.left.name].append(stmt.left.eval(env) or stmt.left)
+
+                if stmt.left.index == 0:
+                    env.var_histories[stmt.left.name] = [VarHistoryElement(stmt.right.eval(env) or stmt.right, len(env.code_history))]
+                else:
+                    # Try to eval lhs. If it can't be evaluated then just take it as is.
+                    env.var_histories[stmt.left.name].append(VarHistoryElement(stmt.right.eval(env) or stmt.right, i+start_index))
             case Assignment.REVISION:
                 assert stmt.left.index >= 0, "Revision to event before big-bang."
                 assert stmt.left.name in env.var_histories, "Revision to event that never occurred."
@@ -166,28 +194,39 @@ def run_code(code, start_index=0, env=Environment()):
             case _:
                 assert False, "Invalid stmt kind."
 
-        # Copy prophecies, but also try to resolve them.
-        for prophecy in env.code_history.prophecies:
-            var, expression = prophecy
-            prophecy_value = expression.eval(env)
-            if prophecy_value is not None and var.name in env.var_histories and len(env.var_histories[var.name]) > var.index:
-                future_value = env.var_histories[var.name][var.index].expression.eval(env)
-                if future_value is not None:
-                    assert future_value == prophecy_value, "Prophecy violated."
-                    continue
-            next_code_history.prophecies.append((var, prophecy_value or expression))
-        
-        # Check if any pending forks can be executed.
-        for fork in env.code_history.pending_forks:
-            fork_value = fork.right.eval(env)
-            if fork_value is not None:
-                new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value)
-                threading.Thread(target=run_code, args=(code, code_index, new_env)).start()
-            else:
-                next_code_history.pending_forks.append(fork)
+        if len(env.code_history) != 0:
+            # Copy prophecies, but also try to resolve them.
+            for prophecy in env.code_history[-1].prophecies:
+                var, expression = prophecy
+                prophecy_value = expression.eval(env)
+                if prophecy_value is not None and var.name in env.var_histories and len(env.var_histories[var.name]) > var.index:
+                    future_value = env.var_histories[var.name][var.index].expression.eval(env)
+                    if future_value is not None:
+                        assert future_value == prophecy_value, "Prophecy violated."
+                        print("PROPHECY FULLFILLED")
+                        continue
+                next_code_history.prophecies.append((var, prophecy_value or expression))
+            
+            # Check if any pending forks can be executed.
+            for fork in env.code_history[-1].pending_forks:
+                fork_value = fork.right.eval(env)
+                if fork_value is not None:
+                    new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value)
+                    threading.Thread(target=run_code, args=(code, code_index, new_env)).start()
+                else:
+                    next_code_history.pending_forks.append(fork)
+        env.code_history.append(next_code_history)
+
+    print(env)
 
 # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
 #
-code = []
+# x = 1
+# x:+1 = 2
+# x = 2
+code = [
+    Assignment(Variable("x", 0), Literal(1), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2), Assignment.PROPHECY),
+    Assignment(Variable("x", 1), Literal(2), Assignment.MUTATION)]
 env = Environment()
 run_code(code)
