@@ -52,11 +52,18 @@ SYMBOLPAIRS = {
     '=<': 'leq',        # less or equal
 }
 
-KEYWORDS = ['and', 'or', 'not', 'len', 'die', 'if']
+KEYWORDS = {
+    'and': 'and',
+    'or':  'or',
+    'not': 'not',
+    'len': 'len',
+    'die': None,
+    'if':  None,
+}
 
 wsp = re.compile(r'\s+')
 nmp = re.compile(r'\d+')
-vxp = re.compile(r'([_a-zA-Z][_a-zA-Z0-9]*\??)(:(?:0|[+-−]\d+)|@\d+)?')
+vxp = re.compile(r'([_a-zA-Z][_a-zA-Z0-9]*\??)(:(?:0+|[+-−]\d+)|@\d+)?')
 
 # We support x@0 notation for debugging.
 
@@ -81,13 +88,13 @@ class Token:
         print(self)
 
 class ParseTree:
-    def __init__(self, label, children):
-        self.label = label
+    def __init__(self, root, children):
+        self.root = root
         self.children = children
 
     def __str__(self):
         tr = "\x1B[38;5;129mTree\x1B[39m"
-        return f"{tr} {self.label}"
+        return f"{tr} of {self.root}"
 
     def __len__(self):
         return len(self.children)
@@ -126,13 +133,14 @@ def extract_tokens(obj):
     raise RuntimeError(f"unable to extract tokens from {type(obj)}")
 
 class ParseFailure:
-    def __init__(self, msg, hi=None):
+    def __init__(self, msg, hi=None, note=None):
         """
         msg -- string describing the failure
         hi  -- token or parse tree to highlight
         """
         self.message = msg
         self.highlight = hi
+        self.note = note
 
     def __str__(self):
         return f"\x1B[91merror\x1B[39m: {self.message}"
@@ -165,6 +173,8 @@ class ParseFailure:
         print("~"*(right-left-1), end='')
         print("\x1B[39m", end='')
         print()
+        if self.note is not None:
+            print(f"\x1B[94mnote\x1B[39m: {self.note}")
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -174,12 +184,14 @@ class TokenStream:
         text -- text to be tokenized
         more -- nullary function that will be called to get more text
         """
-        self.text    = text
-        self.more    = more
-        self.line    = 1
-        self.column  = 1
-        self.newline = False
-        self._log    = [text]
+        self.text     = text
+        self.more     = more
+        self.line     = 1
+        self.column   = 1
+        self.newline  = False
+        self.buffer   = []
+        self._log     = [text]
+        self.complete = False
 
     def log(self):
         return ''.join(self._log).split('\n')
@@ -195,6 +207,8 @@ class TokenStream:
             return True
 
     def __next__(self):
+        if self.complete:
+            return None
         while True:
             # Strip leading whitespace or emit a newline token
             match = wsp.match(self.text)
@@ -204,15 +218,20 @@ class TokenStream:
                 self.text = self.text[match.end():]
                 if newline and not self.newline:
                     self.newline = True
-                    return Token(None, 'newline', None, ln, co)
+                    token = Token(None, 'newline', None, ln, co)
+                    self.buffer.append(token)
+                    return token
 
             if len(self.text) == 0:
                 if self.more is None:
+                    self.complete = True
                     return None
-                self.text = self.more()
-                if self.text is None:
+                addendum = self.more()
+                if addendum is None:
+                    self.complete = True
                     return None
-                self._log.append(self.text)
+                self.text = addendum
+                self._log.append(addendum)
                 continue
 
             if any(self.text.startswith(cs) for cs in COMMENT):
@@ -225,12 +244,14 @@ class TokenStream:
                     else:
                         self._advance(self.text)
                         if self.more is None:
-                            self.text = None
+                            self.complete = True
                             return None
-                        self.text = self.more()
-                        if self.text is None:
+                        addendum = self.more()
+                        if addendum is None:
+                            self.complete = True
                             return None
-                        self._log.append(self.text)
+                        self.text = addendum
+                        self._log.append(addendum)
                 continue
 
             # We’re guaranteed not to return a newline
@@ -244,7 +265,13 @@ class TokenStream:
                 if word in KEYWORDS:
                     self._advance(word)
                     self.text = self.text[match.end(1):]
-                    return Token(word, 'keyword', word, ln, co)
+                    symbol = KEYWORDS[word]
+                    if symbol is None:
+                        token = Token(word, 'keyword', word, ln, co)
+                    else:
+                        token = Token(symbol, 'symbol', word, ln, co)
+                    self.buffer.append(token)
+                    return token
 
                 index = match.group(2)
                 if index is None:
@@ -256,7 +283,9 @@ class TokenStream:
 
                 self._advance(match.group())
                 self.text = self.text[match.end():]
-                return Token(value, 'variable', match.group(), ln, co)
+                token = Token(value, 'variable', match.group(), ln, co)
+                self.buffer.append(token)
+                return token
 
             # Integers
             match = nmp.match(self.text)
@@ -264,7 +293,9 @@ class TokenStream:
                 numr = match.group()
                 self._advance(numr)
                 self.text = self.text[match.end():]
-                return Token(int(numr), 'number', numr, ln, co)
+                token = Token(int(numr), 'number', numr, ln, co)
+                self.buffer.append(token)
+                return token
 
             # Atoms
             if self.text.startswith(STRDELIM):
@@ -275,10 +306,15 @@ class TokenStream:
                 while True:
                     if not offset < len(self.text):
                         if self.more is None:
+                            self._advance(self.text)
+                            self.text = ""
+                            self.complete = True
                             return ParseFailure('unterminated string', point)
                         addendum = self.more()
                         if addendum is None:
-                            point = Token(None, None, None, ln, co)
+                            self._advance(self.text)
+                            self.text = ""
+                            self.complete = True
                             return ParseFailure('unterminated string', point)
                         self.text += addendum
                         self._log.append(addendum)
@@ -287,6 +323,8 @@ class TokenStream:
                     if escape:
                         replacement = ESCAPESEQ.get(char, None)
                         if replacement is None:
+                            self._advance(self.text)
+                            self.text = ""
                             msg = 'string contains invalid escape sequence' \
                                     f' “{STRESCAPE}{char}”'
                             return ParseFailure(msg, point)
@@ -305,60 +343,57 @@ class TokenStream:
                 self._advance(verbatim)
                 self.text = self.text[offset:]
                 value = ''.join(value)
-                return Token(value, 'atom', verbatim, ln, co)
+                token = Token(value, 'atom', verbatim, ln, co)
+                self.buffer.append(token)
+                return token
 
             # Symbols
             for pair in SYMBOLPAIRS:
                 if self.text.startswith(pair):
                     self._advance(pair)
                     self.text = self.text[2:]
-                    return Token(SYMBOLPAIRS[pair], 'symbol', pair, ln, co)
+                    token = Token(SYMBOLPAIRS[pair], 'symbol', pair, ln, co)
+                    self.buffer.append(token)
+                    return token
 
             for sym in SYMBOLS:
                 if self.text.startswith(sym):
                     self._advance(sym)
                     self.text = self.text[1:]
-                    return Token(SYMBOLS[sym], 'symbol', sym, ln, co)
+                    token = Token(SYMBOLS[sym], 'symbol', sym, ln, co)
+                    self.buffer.append(token)
+                    return token
 
+            if self.text[0] == ':':
+                match = nmp.match(self.text[1:])
+                if match is None:
+                    note = 'a numeric literal is required after “:”'
+                else:
+                    numr = match.group()
+                    note = f'a sign is required: “\x1B[94m+\x1B[39m{numr}”' \
+                            f' or “\x1B[94m−\x1B[39m{numr}”'
+            else:
+                note = None
+
+            self._advance(self.text)
+            self.text = ""
             point = Token(None, None, None, ln, co)
-            return ParseFailure('invalid token', point)
-
-class TokenBuffer:
-    def __init__(self, stream, more=None):
-        """
-        stream -- text or instance of TokenStream
-        more   -- nullary function that will be called to get more text
-        """
-        if isinstance(stream, str):
-            self.stream = TokenStream(stream, more)
-        else:
-            self.stream = stream
-        self.buffer = []
-        self.is_complete = False
+            return ParseFailure('invalid token', point, note)
 
     def __len__(self):
-        if self.is_complete:
-            return len(self.buffer)
-        raise AssertionError("length unknown because buffer has not been completed")
+        return len(self.buffer)
 
     def __getitem__(self, idx):
-        if self.is_complete:
-            return self.buffer[idx]
         if idx < 0:
-            raise IndexError("length unknown because buffer has not been completed")
-        if idx >= len(self.buffer):
+            raise IndexError()
+        if not idx < len(self.buffer):
             for _ in range(idx - len(self.buffer) + 1):
-                tok = next(self.stream)
-                if tok is None:
-                    self.is_complete = True
+                token = next(self.stream)
+                if isinstance(token, ParseFailure):
+                    return token
+                if token is None:
                     break
-                self.buffer.append(tok)
         return self.buffer[idx]
-
-    def complete(self):
-        while (tok := next(self.stream)) is not None:
-            self.buffer.append(tok)
-        self.is_complete = True
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -374,8 +409,10 @@ if __name__ == '__main__':
     stream = TokenStream("", prompt)
 
     while True:
-        tok = next(stream)
-        if isinstance(tok, ParseFailure):
-            tok.show(stream.log())
+        token = next(stream)
+        if token is None:
             break
-        print(tok)
+        if isinstance(token, ParseFailure):
+            token.show(stream.log())
+        else:
+            print(token)
