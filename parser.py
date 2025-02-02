@@ -7,7 +7,7 @@ from lexer import *
 
 OPERATORS = [
     ('left',   ['idx'                                ]),
-    ('prefix', ['add', 'sub', 'not', 'def'           ]),
+    ('prefix', ['add', 'sub', 'not', 'len', 'def'    ]),
     ('left',   ['mul', 'div', 'mod'                  ]),
     ('left',   ['add', 'sub'                         ]),
     ('left',   ['eq', 'neq', 'geq', 'leq', 'gt', 'lt']),
@@ -137,8 +137,6 @@ DELIMNAMES = {
 }
 
 def parse_expression(stream):
-    # Handle delimiters (parentheses, brackets, and braces)
-
     stack = []
     seq = []
     index = 0
@@ -199,6 +197,66 @@ def parse_expression(stream):
     # Parse the delimiter-free sequence
     return parse_interior('root', seq)
 
+def parse_statement(stream):
+    # Statements look like
+    #   variable eq expression
+    #   assert expression
+    #   die
+
+    while True:
+        token = next(stream)
+        if token is None:
+            return None
+        if isinstance(token, ParseFailure):
+            return token
+        if token.kind != 'newline':
+            break
+
+    note = None
+
+    if token.kind == 'variable':
+        assn = next(stream)
+        if assn is None:
+            failure = token
+
+        elif isinstance(assn, ParseFailure):
+            return assn
+
+        elif assn.kind == 'symbol' and assn.text == '=':
+            expr = parse_expression(stream)
+            if expr is None:
+                failure = assn
+                note = "missing expression"
+            elif isinstance(expr, ParseFailure):
+                return expr
+            else:
+                return ParseTree(assn, [token, expr])
+
+        else:
+            failure = assn
+
+    elif token.kind == 'keyword':
+        if token.value == 'assert':
+            expr = parse_expression(stream)
+            if expr is None:
+                failure = token
+                note = "missing expression"
+            elif isinstance(expr, ParseFailure):
+                return expr
+            else:
+                return ParseTree(token, [expr])
+
+        elif token.value == 'die':
+            return token
+
+    else:
+        failure = token
+
+    if note is None:
+        i = lambda s: f'\x1B[3m{s}\x1B[23m'
+        note = f'statements must be “{i("variable")} = {i("expression")}”,' \
+                f' “assert {i("expression")}”, or “die”'
+    return ParseFailure('invalid statement', failure, note)
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -213,20 +271,12 @@ if __name__ == '__main__':
 
     stream = TokenStream("", prompt)
 
-    def clear(stream):
-        while True:
-            token = next(stream)
-            if token is None:
-                return
-            if isinstance(token, ParseFailure):
-                return
-            if token.kind == 'newline':
-                return
-
     while True:
-        result = parse_expression(stream)
-        if isinstance(result, ParseFailure):
+        result = parse_statement(stream)
+        if result is None:
+            pass
+        elif isinstance(result, ParseFailure):
             result.show(stream.log())
-            clear(stream)
+            stream.clear_line()
         else:
             result.show()

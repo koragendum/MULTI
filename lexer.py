@@ -53,12 +53,12 @@ SYMBOLPAIRS = {
 }
 
 KEYWORDS = {
-    'and': 'and',
-    'or':  'or',
-    'not': 'not',
-    'len': 'len',
-    'die': None,
-    'if':  None,
+    'and':    'and',
+    'or':     'or',
+    'not':    'not',
+    'len':    'len',
+    'die':    None,
+    'assert': None,
 }
 
 wsp = re.compile(r'\s+')
@@ -377,8 +377,19 @@ class TokenStream:
 
             self._advance(self.text)
             self.text = ""
+            self.newline = True
             point = Token(None, None, None, ln, co)
             return ParseFailure('invalid token', point, note)
+
+    def clear_line(self):
+        while True:
+            if self.newline:
+                break
+            token = next(self)
+            if token is None:
+                return
+            if isinstance(token, ParseFailure):
+                return
 
     def __len__(self):
         return len(self.buffer)
@@ -388,7 +399,7 @@ class TokenStream:
             raise IndexError()
         if not idx < len(self.buffer):
             for _ in range(idx - len(self.buffer) + 1):
-                token = next(self.stream)
+                token = next(self)
                 if isinstance(token, ParseFailure):
                     return token
                 if token is None:
