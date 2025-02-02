@@ -1,6 +1,5 @@
 import threading
 
-# X = K
 class Assignment:
     MUTATION = 0
     REVISION = 1
@@ -11,40 +10,50 @@ class Assignment:
         self.right = right
         self.kind = kind
 
-# X or X:N
 class Variable:
     def __init__(self, name, index):
         self.name = name
-
-        # Indexes are ints. These should be absolute coming from parser.
         self.index = index
 
+    def _str(self, parenthesize):
+        return f'{self.name}@{self.index}'
+
+    def __str__(self):
+        return self._str(False)
+
     def eval(self, env):
-        if self.name in env.var_histories and self.index < len(env.var_histories[self.name]):
-            return env.var_histories[self.name][self.index].expression.eval(env)
-        return None
-        
-    def __repr__(self):
-        return f"Variable(name={self.name}, index={self.index})"
+        if self.name not in env.var_histories:
+            return UNDEFINED
+        if self.index < 0:
+            return UNDEFINED
+        history = env.var_histories[self.name]
+        if not self.index < len(history):
+            return None
+        return history[self.index].expression.eval(env)
 
-# Note: code history needs to keep track of unresolved prophecies at each point
-# so that forks that violate prophecies immediately die.
-
-# add sub mul div mod
-# and or
-# gt lt geq leq eq neq
-# idx
 class BinaryExpression:
     def __init__(self, left, right, operator):
         self.left = left
         self.right = right
         self.operator = operator
 
+    def _str(self, parenthesize):
+        lhs = self.left._str(True)
+        rhs = self.right._str(True)
+        if parenthesize:
+            return f'({lhs} {self.operator} {rhs})'
+        return f'{lhs} {self.operator} {rhs}'
+
+    def __str__(self):
+        return self._str(False)
+
     def eval(self, env):
         left = self.left.eval(env)
         right = self.right.eval(env)
         if left is None or right is None:
             return None
+        if left.kind == 'undefined' or right.kind == 'undefined':
+            return UNDEFINED
         if self.operator == 'idx':
             assert left.kind == 'tuple' and right.kind == 'int'
             return left[right.value]
@@ -105,16 +114,26 @@ class BinaryExpression:
             case _:
                 return None
 
-
-# neg not len
 class UnaryExpression:
     def __init__(self, operand, operator):
         self.operand = operand
+        self.operator = operator
+
+    def _str(self, parenthesize):
+        opd = self.operand._str(True)
+        if parenthesize:
+            return f'({self.operator} {opd})'
+        return f'{self.operator} {opd}'
+
+    def __str__(self):
+        return self._str(False)
 
     def eval(self, env):
         operand = self.operand.eval(env)
         if operand is None:
             return None
+        if operand.kind == 'undefined':
+            return UNDEFINED
         match self.operator:
             case "neg":
                 assert operand.kind == 'int'
@@ -128,29 +147,66 @@ class UnaryExpression:
             case _:
                 raise AssertionError(f'unknown operator "{self.operator}"')
 
-
 class Literal:
     def __init__(self, value, kind):
         self.value = value
-        self.kind = kind    # undefined, bool, atom, int
+        self.kind = kind
+
+    def _str(self, parenthesize):
+        match self.kind:
+            case "atom":
+                return f'“{self.value}”'
+            case "bool":
+                return 'true' if self.value else 'false'
+            case "int":
+                return str(self.value)
+            case _:
+                raise AssertionError()
+
+    def __str__(self):
+        return self._str(False)
+
+    def __eq__(self, other):
+        return isinstance(other, Literal) and self.value == other.value
 
     def eval(self, env):
         return self
 
-    def __repr__(self):
-        return f"Literal(value={self.value}, kind={self.kind})"
+class Undefined:
+    def __init__(self):
+        self.kind = 'undefined'
+
+    def _str(self, parenthesize):
+        return 'undefined'
+
+    def __str__(self):
+        return 'undefined'
 
     def __str__(self):
         return str(self.value)
 
     def __eq__(self, other):
-        return isinstance(other, Literal) and self.value == other.value
+        if isinstance(other, Undefined):
+            raise AssertionError('...who knows?')
+        return False
+
+    def eval(self, env):
+        return self
+
+UNDEFINED = Undefined()
 
 class Tuple:
     def __init__(self, elements, concrete=False):
         self.elements = elements
         self.kind = 'tuple'
         self.concrete = concrete
+
+    def _str(self, parenthesize):
+        inner = ", ".join(elem._str(False) for elem in self.elements)
+        return f'[{inner}]'
+
+    def __str__(self):
+        return self._str(False)
 
     def __len__(self):
         return len(self.elements)
@@ -170,9 +226,10 @@ class Tuple:
             value = elem.eval(env)
             if value is None:
                 return None
+            if value.kind == 'undefined':
+                return UNDEFINED
             values.append(value)
         return Tuple(values, concrete=True)
-
 
 class CodeHistoryElement:
     def __init__(self):
@@ -189,7 +246,7 @@ class VarHistoryElement:
     def __init__(self, expression, code_index):
         self.expression = expression
         self.code_index = code_index
-        
+
     def __str__(self):
         return f"VarHistoryElem<Expression: {self.expression}, Code Index: {self.code_index}>"
 
@@ -212,7 +269,7 @@ class Environment:
         old_var_history = new_env.var_histories[var_name][var_index]
         new_env.var_histories[var_name][var_index] = VarHistoryElement(new_value, old_var_history.code_index)
         return new_env, code_index
-    
+
     def __str__(self):
         def str_var_histories(var_histories):
             return f"{{{",\n   ".join(f"{var}:\t[{",".join(str(elm) for elm in hist)}]" for var, hist in var_histories.items())}}}"
@@ -242,7 +299,7 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                     continue
             if next_code is not None:
                 next_code.prophecies.append((var, prophecy_value or expression))
-        
+
         # Check if any pending forks can be executed, or copy forward to try later.
         for fork in prev_code.pending_forks:
             fork_value = fork.right.eval(env)
