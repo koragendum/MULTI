@@ -1,0 +1,17 @@
+assignment = var "=" expr
+
+var = name ( ":" ( "0" | "+" int | "-" int ) )?
+
+bool = "true" | "false"
+
+int = ...
+
+str = ...
+
+tuple = "[" expr ( "," expr )+ "]"
+
+unop = [+-−!] expr
+
+binop = expr ([.+-*/−×÷><≥≤≠] | ">=" | "<=" | "!=") expr
+
+expr = var | bool | int | str | tuple | unop | binop
