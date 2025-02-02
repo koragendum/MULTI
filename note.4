@@ -1,0 +1,59 @@
+Statement
+     x   = expr
+     x:i = expr
+     ^ ^
+  name index
+
+Three kinds of statements
+  Assignment (with zero or more prophecies to verify)
+  Rewrite
+  Prophecy
+
+x:+1 = 10
+x = y:+1
+y = x
+// this is fine (x and y are 10)
+
+
+x:+1 = 10
+x = y:+1
+y = x
+y:0 = 5   // creates a fork that immediately dies
+dbg x y
+
+
+x:+1 = 10
+x = 10    // this is fine (x is 10)
+x:0 = 5   // creates fork that immediately dies
+
+
+x:+1 = 10
+x:+1 = y:+1
+x = z:+1        // verify rhs is 10 and y:+1
+
+x:+1 = y:+1
+x = 10
+y = 1           // die at this point
+
+y = x:+1
+x = y
+x:0 = 4         // forks a universe in which x and y are both 4
+                // (...in _this_ universe things are still kinda fucked.)
+
+
+
+x:+1 = 10
+y    = 10
+x:+1 = y
+y:0  = 5
+x:+1 = x:+1
+x    = 10
+z    = 5
+
+
+x = y:+1
+z = 0
+x:+1 = x + y:+1
+y = z
+z:0 = 1
+x = 2           // die in original thread, live in forked thread
