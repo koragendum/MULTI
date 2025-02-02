@@ -326,7 +326,7 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
             if prophecy_value is not None and var.name in env.var_histories and len(env.var_histories[var.name]) > var.index:
                 future_value = env.var_histories[var.name][var.index].expression.eval(env)
                 if future_value is not None:
-                    assert future_value == prophecy_value, "Prophecy violated."
+                    assert future_value == prophecy_value, f"prophecy violated: {future_value} ≠ {prophecy_value}"
                     continue
             if next_code is not None:
                 next_code.prophecies.append((var, prophecy_value or expression))
@@ -428,10 +428,10 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
 # x = 2
 # x:0 = 3
 code = [
-    Assignment(Variable("x", 0), Literal(1, 'int'), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.PROPHECY),
-    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(3, 'int'), Assignment.REVISION)]
+    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.PROPHECY),
+    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(3, "int"), Assignment.REVISION)]
 # run_code(code, Environment())
 
 # x = 1
@@ -441,20 +441,20 @@ code = [
 # y = z
 # z:0 = 3
 code = [
-    Assignment(Variable("x", 0), Literal(1, 'int'), Assignment.MUTATION),
+    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
     Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY),
-    Assignment(Variable("dbg", 0), Literal(1, 'int'), Assignment.MUTATION),
+    Assignment(Variable("dbg", 0), Literal(1, "int"), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("x", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(2, 'int'), Assignment.MUTATION),
+    Assignment(Variable("z", 0), Literal(2, "int"), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
     Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(3, 'int'), Assignment.REVISION),
+    Assignment(Variable("z", 0), Literal(3, "int"), Assignment.REVISION),
     Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION)
 ]
 output={}
-var_count = {'x': 2, 'y': 1, 'z': 1, 'out': 1, 'dbg': 1}
+var_count = {"x": 2, "y": 1, "z": 1, "out": 1, "dbg": 1}
 run_code_to_completion(code, Environment(var_count), output)
 for _, outputs in output.items():
     for out in outputs:
