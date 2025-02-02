@@ -21,11 +21,20 @@ class Variable:
     def __str__(self):
         return self._str(False)
 
-    def eval(self, env):
-        if self.name not in env.var_histories:
-            return UNDEFINED
+    def defined(self, env):
+        if self.name not in env.var_count:
+            raise AssertionError()
         if self.index < 0:
+            return False
+        if not self.index < env.var_count[self.name]:
+            return False
+        return True
+
+    def eval(self, env):
+        if not self.defined(env):
             return UNDEFINED
+        if self.name not in env.var_histories:
+            return None
         history = env.var_histories[self.name]
         if not self.index < len(history):
             return None
@@ -47,6 +56,9 @@ class BinaryExpression:
     def __str__(self):
         return self._str(False)
 
+    def defined(self, env):
+        return self.left.defined(env) and self.right.defined(env)
+
     def eval(self, env):
         left = self.left.eval(env)
         right = self.right.eval(env)
@@ -56,6 +68,8 @@ class BinaryExpression:
             return UNDEFINED
         if self.operator == 'idx':
             assert left.kind == 'tuple' and right.kind == 'int'
+            if right.value < 0 or not right.value < len(left):
+                return UNDEFINED
             return left[right.value]
         assert left.kind == right.kind
         kind = left.kind
@@ -128,7 +142,12 @@ class UnaryExpression:
     def __str__(self):
         return self._str(False)
 
+    def defined(self, env):
+        return self.operand.defined(env)
+
     def eval(self, env):
+        if self.operator == "def":
+            return Literal(self.operand.defined(env), 'bool')
         operand = self.operand.eval(env)
         if operand is None:
             return None
@@ -169,6 +188,9 @@ class Literal:
     def __eq__(self, other):
         return isinstance(other, Literal) and self.value == other.value
 
+    def defined(self, env):
+        return True
+
     def eval(self, env):
         return self
 
@@ -188,6 +210,9 @@ class Undefined:
     def __eq__(self, other):
         if isinstance(other, Undefined):
             raise AssertionError('...who knows?')
+        return False
+
+    def defined(self, env):
         return False
 
     def eval(self, env):
@@ -217,6 +242,9 @@ class Tuple:
         assert self.concrete
         assert other.concrete
         return other.elements == self.elements
+
+    def defined(self, env):
+        return all(elem.defined(env) for elem in self.elements)
 
     def eval(self, env):
         if self.concrete:
@@ -251,9 +279,12 @@ class VarHistoryElement:
         return f"VarHistoryElem<Expression: {self.expression}, Code Index: {self.code_index}>"
 
 class Environment:
-    def __init__(self):
+    def __init__(self, var_count):
+        # If idx = var_count[var] - 1, then var@idx is the last value of var.
+        # The var_count dict is never mutated.
         self.var_histories = {}
         self.code_history = []
+        self.var_count = var_count
 
     def fork(self, var_name, var_index, new_value):
         assert var_name in self.var_histories, "Reference to past event that never occurred."
@@ -261,7 +292,7 @@ class Environment:
         code_index = self.var_histories[var_name][var_index].code_index
         assert code_index < len(self.code_history)
 
-        new_env = Environment()
+        new_env = Environment(self.var_count)
         new_env.code_history = self.code_history[:code_index + 1]
         code = self.code_history[code_index]
         new_env.var_histories = {
@@ -397,10 +428,10 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
 # x = 2
 # x:0 = 3
 code = [
-    Assignment(Variable("x", 0), Literal(1, int), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, int), Assignment.PROPHECY),
-    Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(3, int), Assignment.REVISION)]
+    Assignment(Variable("x", 0), Literal(1, 'int'), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.PROPHECY),
+    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(3, 'int'), Assignment.REVISION)]
 # run_code(code, Environment())
 
 # x = 1
@@ -410,20 +441,21 @@ code = [
 # y = z
 # z:0 = 3
 code = [
-    Assignment(Variable("x", 0), Literal(1, int), Assignment.MUTATION),
+    Assignment(Variable("x", 0), Literal(1, 'int'), Assignment.MUTATION),
     Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY),
-    Assignment(Variable("dbg", 0), Literal(1, int), Assignment.MUTATION),
+    Assignment(Variable("dbg", 0), Literal(1, 'int'), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("x", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(2, int), Assignment.MUTATION),
+    Assignment(Variable("z", 0), Literal(2, 'int'), Assignment.MUTATION),
     Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, 'int'), Assignment.MUTATION),
     Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(3, int), Assignment.REVISION),
+    Assignment(Variable("z", 0), Literal(3, 'int'), Assignment.REVISION),
     Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION)
 ]
 output={}
-run_code_to_completion(code, Environment(), output)
+var_count = {'x': 2, 'y': 1, 'z': 1, 'out': 1, 'dbg': 1}
+run_code_to_completion(code, Environment(var_count), output)
 for _, outputs in output.items():
     for out in outputs:
         print(out)
