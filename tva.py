@@ -140,6 +140,9 @@ class Literal:
     def __repr__(self):
         return f"Literal(value={self.value}, kind={self.kind})"
 
+    def __str__(self):
+        return str(self.value)
+
     def __eq__(self, other):
         return isinstance(other, Literal) and self.value == other.value
 
@@ -177,6 +180,7 @@ class CodeHistoryElement:
         self.var_history_indexes = {}
         self.prophecies = []
         self.pending_forks = []
+        self.pending_dbgs = []
 
     def __str__(self):
         return f"CodeHistoryElem<\nVar History Indexes: {self.var_history_indexes},\nProphecies: {[str(proph) for proph in self.prophecies]},\nPending Forks: {self.pending_forks}>"
@@ -216,8 +220,16 @@ class Environment:
             f"Variable Histories:\n  {str_var_histories(self.var_histories)}\n" + \
             f"Code History:\n  [{",\n   ".join(str(elem) for elem in self.code_history)}]"
 
-def run_code(code, env, start_index=0):
-    spawned_threads = []
+def run_code_to_completion(*args, output=True, **kwargs):
+    threads = []
+    try:
+        run_code(*args, spawned_threads=threads, **kwargs)
+    finally:
+        for thread in threads:
+            thread.join()
+
+def run_code(code, env, universe_outputs, spawned_threads, start_index=0, universe="root", out_name="out", dbg_name="dbg"):
+    spawn_count = 0
     def resolve_prophecies_and_pending_forks(prev_code, next_code):
         # Copy prophecies, but also try to resolve them.
         for prophecy in prev_code.prophecies:
@@ -236,11 +248,24 @@ def run_code(code, env, start_index=0):
             fork_value = fork.right.eval(env)
             if fork_value is not None:
                 new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value)
-                thread = threading.Thread(target=run_code, args=(code, new_env, code_index+1))
+                args = (code, new_env, universe_outputs)
+                kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
                 spawned_threads.append(thread)
                 thread.start()
+                spawn_count += 1
             elif next_code is not None:
                 next_code.pending_forks.append(fork)
+
+        # Print any pending debug statements that may have been resolved.
+        #
+        for dbg in prev_code.pending_dbgs:
+            val = dbg[1].eval(env)
+            if val is None:
+                if next_code is not None:
+                    next_code.pending_dbgs.append(dbg)
+            else:
+                print(f"dbg(u:{universe},l:{dbg[0]}): {str(val)}")
 
     for i, stmt in enumerate(code[start_index:]):
         next_code_history = CodeHistoryElement()
@@ -257,6 +282,14 @@ def run_code(code, env, start_index=0):
                     (stmt.left.name in env.var_histories and len(env.var_histories[stmt.left.name]) == stmt.left.index), \
                     "Mutation to event in wrong timeline position."
 
+                if stmt.left.name == dbg_name:
+                    print(f"dbg(u:{universe},l:{i+start_index}): {str(stmt.right)}")
+                    val = stmt.right.eval(env)
+                    if val is None:
+                        next_code_history.pending_dbgs.append((i+start_index, stmt.right))
+                    else:
+                        print(f"dbg(u:{universe},l:{i+start_index}): {str(val)}")
+
                 if stmt.left.index == 0:
                     env.var_histories[stmt.left.name] = [VarHistoryElement(stmt.right.eval(env) or stmt.right, len(env.code_history))]
                 else:
@@ -272,8 +305,11 @@ def run_code(code, env, start_index=0):
                     next_code_history.pending_forks.append(stmt)
                 else:
                     new_env, code_index = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env))
-                    spawned_threads.append(threading.Thread(target=run_code, args=(code, new_env, code_index+1)))
+                    args = (code, new_env, universe_outputs)
+                    kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                    spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
                     spawned_threads[-1].start()
+                    spawn_count += 1
             case Assignment.PROPHECY:
                 assert stmt.left.name not in env.var_histories or len(env.var_histories[stmt.left.name]) <= stmt.left.index, \
                     "Prophecy about event in the past."
@@ -290,13 +326,12 @@ def run_code(code, env, start_index=0):
     if len(env.code_history) != 0:
         resolve_prophecies_and_pending_forks(env.code_history[-1], None)
 
-    # Join all spawned threads.
-    for thread in spawned_threads:
-        thread.join()      
-
-    print("Universe reached its natural end")
-    print(env)
-    print()
+    # TODO: if something in the output is indeterminate, fail this universe.
+    if out_name in env.var_histories:
+        outputs = [out.expression.eval(env) for out in env.var_histories[out_name]]
+        if any(output is None for output in outputs):
+            assert False, f"Indeterminate output, universe {universe} failed."
+        universe_outputs[universe] = [str(out) for out in outputs]
 
 # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
 #
@@ -320,9 +355,18 @@ code = [
 code = [
     Assignment(Variable("x", 0), Literal(1, int), Assignment.MUTATION),
     Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY),
+    Assignment(Variable("dbg", 0), Literal(1, int), Assignment.MUTATION),
+    Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
+    Assignment(Variable("dbg", 0), Variable("x", 0), Assignment.MUTATION),
     Assignment(Variable("z", 0), Literal(2, int), Assignment.MUTATION),
+    Assignment(Variable("dbg", 0), Variable("y", 0), Assignment.MUTATION),
     Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION),
     Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(3, int), Assignment.REVISION)
+    Assignment(Variable("z", 0), Literal(3, int), Assignment.REVISION),
+    Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION)
 ]
-run_code(code, Environment())
+output={}
+run_code_to_completion(code, Environment(), output)
+for _, outputs in output.items():
+    for out in outputs:
+        print(out)
