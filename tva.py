@@ -58,56 +58,11 @@ class Tuple:
     def eval(self, env):
         return [value.eval(env) for value in self.values]
 
-class ConcreteValue:
-    def is_thunk(self):
-        return False
+env = {
+    'x': HistoryOfX,
+}
 
-    def get_value(self):
-        return self.value
-
-# Holds a representation of an expression, and eval returns one of:
-# - A concrete value if all thinks are known.
-# - None if we're waiting for some other thunks to resolve.
-#
-class ThunkValue:    
-    def is_prophecy(self):
-        return False
-
-    def is_thunk(self):
-        return True
-
-    def eval(self, env):
-        pass
-
-class ProphesizedValue:
-    def is_thunk(self):
-
-class ExecutionFailure(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-# Used to represent a value of an object - may either be a concrete value or some future unknown or expression based on future unknowns.
-class ObjValue:
-    pass
-
-class Obj:
-    def __init__(self, name):
-        self.name = name
-        self.current_time = -1
-        self.values = {}
-
-    def get(self, delta_time):
-        pass
-
-# x@N if just x, then it's equivalent to x@0
-class AliasAtDeltaTime:
-    def eval(self, env):
-        self.delta_time = self.right.eval(env)
-
-
-# No `eval` on assignment as this gets evaluated by the runner to more easily enable time travel.
-class Assignment:
-    pass
-
-env = {}
-for stmt in code:
+History = {
+    index: (Expression, codeIndex),
+    ...
+}
