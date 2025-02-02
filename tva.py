@@ -45,49 +45,77 @@ class BinaryExpression:
         right = self.right.eval(env)
         if left is None or right is None:
             return None
+        if self.operator == 'idx':
+            assert left.kind == 'tuple' and right.kind == 'int'
+            return left[right.value]
+        assert left.kind == right.kind
+        kind = left.kind
         match self.operator:
             case "add":
-                pass
-                # todo - int add or tuple concat
+                if kind == 'int':
+                    return Literal(left.value + right.value, 'int')
+                elif kind == 'tuple':
+                    return Tuple(left.elements + right.elements)
+                elif kind == 'atom':
+                    return Literal(left.value + right.value, 'atom')
+                else:
+                    raise AssertionError()
             case "sub":
-                pass
-                # todo - int sub
+                assert kind == 'int'
+                return Literal(left.value - right.value, 'int')
             case "mul":
-                pass
-                # todo - int mul
+                assert kind == 'int'
+                return Literal(left.value * right.value, 'int')
             case "div":
-                pass
-                # todo - int div
+                assert kind == 'int'
+                return Literal(left.value // right.value, 'int')
             case "mod":
-                pass
-                # todo - int mod
+                assert kind == 'int'
+                return Literal(left.value % right.value, 'int')
             case "and":
-                pass
-                # todo
+                if kind == 'bool':
+                    return Literal(left.value and right.value, 'bool')
+                elif kind == 'int':
+                    return Literal(min(left.value, right.value), 'int')
+                else:
+                    raise AssertionError()
             case "or":
-                pass
-                # todo
+                if kind == 'bool':
+                    return Literal(left.value or right.value, 'bool')
+                elif kind == 'int':
+                    return Literal(max(left.value, right.value), 'int')
+                else:
+                    raise AssertionError()
             case "gt":
-                pass
-                # todo
+                assert kind == 'int'
+                return Literal(left.value > right.value, 'bool')
             case "lt":
-                pass
-                # todo
+                assert kind == 'int'
+                return Literal(left.value < right.value, 'bool')
             case "geq":
-                pass
-                # todo
+                assert kind == 'int'
+                return Literal(left.value >= right.value, 'bool')
             case "leq":
-                pass
-                # todo
+                assert kind == 'int'
+                return Literal(left.value <= right.value, 'bool')
             case "eq":
-                pass
-                # todo
+                if kind == 'tuple':
+                    if len(left) != len(right):
+                        return Literal(False, 'bool')
+                    for l, r in zip(left, right):
+                        if l != r:
+                            return Literal(False, 'bool')
+                    return Literal(True, 'bool')
+                return Literal(left == right, 'bool')
             case "neq":
-                pass
-                # todo
-            case "idx":
-                pass
-                # todo - tuple index (left is tuple, right is int?)
+                if kind == 'tuple':
+                    if len(left) != len(right):
+                        return Literal(True, 'bool')
+                    for l, r in zip(left, right):
+                        if l != r:
+                            return Literal(True, 'bool')
+                    return Literal(False, 'bool')
+                return Literal(left != right, 'bool')
             case _:
                 return None
 
@@ -97,14 +125,28 @@ class UnaryExpression:
     def __init__(self, operand, operator):
         self.operand = operand
 
-# undefined
-# bool
-# atom
-# int
+    def eval(self, env):
+        operand = self.operand.eval(env)
+        if operand is None:
+            return None
+        match self.operator:
+            case "neg":
+                assert operand.kind == 'int'
+                return Literal(-operand.value, 'int')
+            case "not":
+                assert operand.kind == 'bool'
+                return Literal(not operand.value, 'bool')
+            case "len":
+                assert operand.kind == 'tuple'
+                return len(operand)
+            case _:
+                raise AssertionError(f'unknown operator "{self.operator}"')
+
+
 class Literal:
     def __init__(self, value, kind):
         self.value = value
-        self.kind = kind
+        self.kind = kind    # undefined, bool, atom, int
 
     def eval(self, env):
         return self
@@ -118,6 +160,10 @@ class Literal:
 class Tuple:
     def __init__(self, elements):
         self.elements = elements
+        self.kind = 'tuple'
+
+    def __len__(self):
+        return len(self.elements)
 
     def eval(self, env):
         values = []
@@ -128,10 +174,6 @@ class Tuple:
             values.append(value)
         return values
 
-# Literal.eval(...) returns self
-
-# eval returns a Literal or Tuple if the value is known
-#   and None otherwise
 
 class CodeHistoryElement:
     def __init__(self):
