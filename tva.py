@@ -209,7 +209,8 @@ class Environment:
         code = self.code_history[code_index]
         new_env.var_histories = {
             var: history[:code.var_history_indexes[var] + 1] for var, history in self.var_histories.items() if var in code.var_history_indexes}
-        new_env.var_histories[var_name][var_index].expression = new_value
+        old_var_history = new_env.var_histories[var_name][var_index]
+        new_env.var_histories[var_name][var_index] = VarHistoryElement(new_value, old_var_history.code_index)
         return new_env, code_index
     
     def __str__(self):
@@ -219,7 +220,8 @@ class Environment:
             f"Variable Histories:\n  {str_var_histories(self.var_histories)}\n" + \
             f"Code History:\n  [{",\n   ".join(str(elem) for elem in self.code_history)}]"
 
-def run_code(code, start_index=0, env=Environment()):
+def run_code(code, env, start_index=0):
+    spawned_threads = []
     def resolve_prophecies_and_pending_forks(prev_code, next_code):
         # Copy prophecies, but also try to resolve them.
         for prophecy in prev_code.prophecies:
@@ -238,7 +240,9 @@ def run_code(code, start_index=0, env=Environment()):
             fork_value = fork.right.eval(env)
             if fork_value is not None:
                 new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value)
-                threading.Thread(target=run_code, args=(code, code_index, new_env)).start()
+                thread = threading.Thread(target=run_code, args=(code, new_env, code_index+1))
+                spawned_threads.append(thread)
+                thread.start()
             elif next_code is not None:
                 next_code.pending_forks.append(fork)
 
@@ -272,11 +276,12 @@ def run_code(code, start_index=0, env=Environment()):
                     next_code_history.pending_forks.append(stmt)
                 else:
                     new_env, code_index = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env))
-                    threading.Thread(target=run_code, args=(code, code_index, new_env)).start()
+                    spawned_threads.append(threading.Thread(target=run_code, args=(code, new_env, code_index+1)))
+                    spawned_threads[-1].start()
             case Assignment.PROPHECY:
                 assert stmt.left.name not in env.var_histories or len(env.var_histories[stmt.left.name]) <= stmt.left.index, \
                     "Prophecy about event in the past."
-                next_code_history.prophecies.append((stmt.left, stmt.right.eval(env) or stmt))
+                next_code_history.prophecies.append((stmt.left, stmt.right.eval(env) or stmt.right))
             case _:
                 assert False, "Invalid stmt kind."
 
@@ -289,7 +294,13 @@ def run_code(code, start_index=0, env=Environment()):
     if len(env.code_history) != 0:
         resolve_prophecies_and_pending_forks(env.code_history[-1], None)
 
+    # Join all spawned threads.
+    for thread in spawned_threads:
+        thread.join()      
+
+    print("Universe reached its natural end")
     print(env)
+    print()
 
 # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
 #
@@ -302,5 +313,20 @@ code = [
     Assignment(Variable("x", 1), Literal(2, int), Assignment.PROPHECY),
     Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION),
     Assignment(Variable("x", 1), Literal(3, int), Assignment.REVISION)]
-env = Environment()
-run_code(code)
+# run_code(code, Environment())
+
+# x = 1
+# x:+1 = y:+1
+# z = 2
+# x = 2
+# y = z
+# z:0 = 3
+code = [
+    Assignment(Variable("x", 0), Literal(1, int), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY),
+    Assignment(Variable("z", 0), Literal(2, int), Assignment.MUTATION),
+    Assignment(Variable("x", 1), Literal(2, int), Assignment.MUTATION),
+    Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION),
+    Assignment(Variable("z", 0), Literal(3, int), Assignment.REVISION)
+]
+run_code(code, Environment())
