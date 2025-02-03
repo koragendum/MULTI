@@ -23,23 +23,25 @@ class VarHistoryElement:
         return f"VarHistoryElem<Expression: {self.expression}, Code Index: {self.code_index}>"
 
 class Environment:
-    def __init__(self, var_count):
+    def __init__(self, var_count, verbose=False):
         # If idx = var_count[var] - 1, then var@idx is the last value of var.
         # The var_count dict is never mutated.
         self.var_histories = {}
         self.code_history = []
         self.var_count = var_count
+        self.verbose = verbose
 
     def fork(self, var_name, var_index, new_value, universe, line_number):
         if var_name not in self.var_histories or var_index < 0:
             # Signals to caller that fork insta-dies because it's going to an undefined point.
-            sys.stderr.write(f"dbg(u:{universe},l:{line_number}): Fork happens before big-bang, travel will fail.\n")
+            if self.verbose:
+                sys.stderr.write(f"dbg(u:{universe},l:{line_number}): Fork happens before big-bang, travel will fail.\n")
             return None, None, None
         assert var_index < len(self.var_histories[var_name]), "Trying to fork to future event."
         code_index = self.var_histories[var_name][var_index].code_index
         assert code_index < len(self.code_history)
 
-        new_env = Environment(self.var_count)
+        new_env = Environment(self.var_count, self.verbose)
         new_env.code_history = self.code_history[:code_index + 1]
         code = self.code_history[code_index]
         new_env.var_histories = {
@@ -74,7 +76,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 future_value = env.var_histories[var.name][var.index].expression.eval(env)
                 if future_value is not None:
                     if future_value != prophecy_value:
-                        sys.stderr.write(f"dbg(u:{universe},l:{line}): Prophecy violated: ({var.name}@{var.index} = {future_value}) ≠ {prophecy_value}\n")
+                        if env.verbose:
+                            sys.stderr.write(f"dbg(u:{universe},l:{line}): Prophecy violated: ({var.name}@{var.index} = {future_value}) ≠ {prophecy_value}\n")
                         return False
                     continue
             if next_code is not None:
@@ -91,7 +94,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                     args = (code, new_env, universe_outputs)
                     kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
                     thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
-                    sys.stderr.write(f"dbg(u:{universe},l:{fork.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
+                    if env.verbose:
+                        sys.stderr.write(f"dbg(u:{universe},l:{fork.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
                     spawned_threads.append(thread)
                     thread.start()
                     spawn_count += 1
@@ -106,7 +110,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if next_code is not None:
                     next_code.pending_dbgs.append(dbg)
             else:
-                sys.stderr.write(f"dbg(u:{universe},l:{dbg[0]}): now known: {str(dbg[1])} = {str(val)}\n")
+                if env.verbose:
+                    sys.stderr.write(f"dbg(u:{universe},l:{dbg[0]}): now known: {str(dbg[1])} = {str(val)}\n")
 
         return True
 
@@ -130,10 +135,12 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if stmt.left.name == dbg_name:
                     if val is None:
                         next_code_history.pending_dbgs.append((stmt.line, stmt.right))
-                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {str(stmt.right)} = unknown\n")
+                        if env.verbose:
+                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {str(stmt.right)} = unknown\n")
                     else:
                         output = str(val) if str(stmt.right) == str(val) else f"{str(stmt.right)} = {str(val)}"
-                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {output}\n")
+                        if env.verbose:
+                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {output}\n")
 
                 if val is not None and not val.defined(env):
                     val = None
@@ -155,7 +162,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                     if new_env is not None:
                         args = (code, new_env, universe_outputs)
                         kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
+                        if env.verbose:
+                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
                         spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
                         spawned_threads[-1].start()
                         spawn_count += 1
@@ -182,7 +190,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         for i, output in enumerate(outputs):
             if output is None or not output.defined(env):
                 out = env.var_histories[out_name][i]
-                sys.stderr.write(f"dbg(u:{universe},l:{stmt.line+1}): Indeterminate output at line {env.code_history[out.code_index].line}: {out.expression}, universe {universe} failed.\n")
+                if env.verbose:
+                    sys.stderr.write(f"dbg(u:{universe},l:{stmt.line+1}): Indeterminate output at line {env.code_history[out.code_index].line}: {out.expression}, universe {universe} failed.\n")
                 return
         universe_outputs[universe] = [str(out) for out in outputs]
 
