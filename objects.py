@@ -19,7 +19,11 @@ class Variable:
             return False
         return True
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
+        visited = visited or set()
+        if self.name in visited:
+            return None
+        visited.add(self.name)
         if not self.defined(env):
             return UNDEFINED
         if self.name not in env.var_histories:
@@ -27,7 +31,7 @@ class Variable:
         history = env.var_histories[self.name]
         if not self.index < len(history):
             return None
-        return history[self.index].expression.eval(env)
+        return history[self.index].expression.eval(env, visited)
 
 class Undefined:
     def __init__(self):
@@ -48,7 +52,7 @@ class Undefined:
     def defined(self, env):
         return False
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
         return self
 
 UNDEFINED = Undefined()
@@ -78,7 +82,7 @@ class Literal:
     def defined(self, env):
         return True
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
         return self
 
 class Tuple:
@@ -107,7 +111,7 @@ class Tuple:
     def defined(self, env):
         return all(elem.defined(env) for elem in self.elements)
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
         if self.concrete:
             return self
         values = []
@@ -137,7 +141,7 @@ class UnaryExpression:
     def defined(self, env):
         return self.operand.defined(env)
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
         if self.operator == "def":
             return Literal(self.operand.defined(env), 'bool')
         operand = self.operand.eval(env)
@@ -180,7 +184,7 @@ class BinaryExpression:
     def defined(self, env):
         return self.left.defined(env) and self.right.defined(env)
 
-    def eval(self, env):
+    def eval(self, env, visited=None):
         left = self.left.eval(env)
         right = self.right.eval(env)
         if left is None or right is None:
