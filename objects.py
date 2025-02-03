@@ -40,6 +40,7 @@ class Undefined:
         return 'undefined'
 
     def __eq__(self, other):
+        return True
         if isinstance(other, Undefined):
             raise AssertionError('...who knows?')
         return False

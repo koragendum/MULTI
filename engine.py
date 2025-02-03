@@ -3,12 +3,13 @@ import threading
 import sys
 
 class CodeHistoryElement:
-    def __init__(self):
+    def __init__(self, line):
         # varName: currentIndex
         self.var_history_indexes = {}
         self.prophecies = []
         self.pending_forks = []
         self.pending_dbgs = []
+        self.line = line
 
     def __str__(self):
         return f"CodeHistoryElem<\nVar History Indexes: {self.var_history_indexes},\nProphecies: {[str(proph) for proph in self.prophecies]},\nPending Forks: {self.pending_forks}>"
@@ -29,11 +30,11 @@ class Environment:
         self.code_history = []
         self.var_count = var_count
 
-    def fork(self, var_name, var_index, new_value, universe):
+    def fork(self, var_name, var_index, new_value, universe, line_number):
         if var_name not in self.var_histories or var_index < 0:
             # Signals to caller that fork insta-dies because it's going to an undefined point.
-            sys.stderr.write(f"dbg(u:{universe},l:{len(self.code_history)}): Fork happens before big-bang, travel will fail.\n")
-            return None, None
+            sys.stderr.write(f"dbg(u:{universe},l:{line_number}): Fork happens before big-bang, travel will fail.\n")
+            return None, None, None
         assert var_index < len(self.var_histories[var_name]), "Trying to fork to future event."
         code_index = self.var_histories[var_name][var_index].code_index
         assert code_index < len(self.code_history)
@@ -45,7 +46,7 @@ class Environment:
             var: history[:code.var_history_indexes[var] + 1] for var, history in self.var_histories.items() if var in code.var_history_indexes}
         old_var_history = new_env.var_histories[var_name][var_index]
         new_env.var_histories[var_name][var_index] = VarHistoryElement(new_value, old_var_history.code_index)
-        return new_env, code_index
+        return new_env, code_index, code.line
 
     def __str__(self):
         def str_var_histories(var_histories):
@@ -67,30 +68,30 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
     def resolve_prophecies_and_pending_forks(prev_code, next_code):
         # Copy prophecies, but also try to resolve them.
         for prophecy in prev_code.prophecies:
-            var, expression = prophecy
+            var, expression, line = prophecy
             prophecy_value = expression.eval(env)
             if prophecy_value is not None and var.name in env.var_histories and len(env.var_histories[var.name]) > var.index:
                 future_value = env.var_histories[var.name][var.index].expression.eval(env)
                 if future_value is not None:
                     if future_value != prophecy_value:
-                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Prophecy violated: ({var.name}@{var.index} = {future_value}) ≠ {prophecy_value}\n")
+                        sys.stderr.write(f"dbg(u:{universe},l:{line}): Prophecy violated: ({var.name}@{var.index} = {future_value}) ≠ {prophecy_value}\n")
                         return False
                     continue
             if next_code is not None:
-                next_code.prophecies.append((var, prophecy_value or expression))
+                next_code.prophecies.append((var, prophecy_value or expression, line))
 
         # Check if any pending forks can be executed, or copy forward to try later.
         for fork in prev_code.pending_forks:
             fork_value = fork.right.eval(env)
             if fork_value is not None:
-                new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value, universe)
+                new_env, code_index, fork_line = env.fork(fork.left.name, fork.left.index, fork_value, universe, fork.line)
 
                 # Premature death of fork if `new_env` is None.
                 if new_env is not None:
                     args = (code, new_env, universe_outputs)
                     kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
                     thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
-                    sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Forking to {universe}-{spawn_count} at line {code_index}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
+                    sys.stderr.write(f"dbg(u:{universe},l:{fork.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
                     spawned_threads.append(thread)
                     thread.start()
                     spawn_count += 1
@@ -110,7 +111,7 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         return True
 
     for i, stmt in enumerate(code[start_index:]):
-        next_code_history = CodeHistoryElement()
+        next_code_history = CodeHistoryElement(stmt.line)
 
         # Important that pending forks and prophecies get resolved before
         # executing the stmt, otherwise a fork that breaks a prophecy would not
@@ -128,11 +129,11 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 val = stmt.right.eval(env)
                 if stmt.left.name == dbg_name:
                     if val is None:
-                        next_code_history.pending_dbgs.append((i+start_index, stmt.right))
-                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): {str(stmt.right)} = unknown\n")
+                        next_code_history.pending_dbgs.append((stmt.line, stmt.right))
+                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {str(stmt.right)} = unknown\n")
                     else:
                         output = str(val) if str(stmt.right) == str(val) else f"{str(stmt.right)} = {str(val)}"
-                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): {output}\n")
+                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {output}\n")
 
                 if val is not None and not val.defined(env):
                     val = None
@@ -148,20 +149,20 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if fork_value is None:
                     next_code_history.pending_forks.append(stmt)
                 else:
-                    new_env, code_index = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env), universe)
+                    new_env, code_index, fork_line = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env), universe, stmt.line)
 
                     # Premature death of fork if `new_env` is None.
                     if new_env is not None:
                         args = (code, new_env, universe_outputs)
                         kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Forking to {universe}-{spawn_count} at line {code_index}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
+                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
                         spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
                         spawned_threads[-1].start()
                         spawn_count += 1
             case Assignment.PROPHECY:
                 assert stmt.left.name not in env.var_histories or len(env.var_histories[stmt.left.name]) <= stmt.left.index, \
                     "Prophecy about event in the past."
-                next_code_history.prophecies.append((stmt.left, stmt.right.eval(env) or stmt.right))
+                next_code_history.prophecies.append((stmt.left, stmt.right.eval(env) or stmt.right, stmt.line))
             case _:
                 assert False, "Invalid stmt kind."
 
@@ -181,7 +182,7 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         for i, output in enumerate(outputs):
             if output is None or not output.defined(env):
                 out = env.var_histories[out_name][i]
-                sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Indeterminate output at line {out.code_index}: {out.expression}, universe {universe} failed.\n")
+                sys.stderr.write(f"dbg(u:{universe},l:{stmt.line+1}): Indeterminate output at line {env.code_history[out.code_index].line}: {out.expression}, universe {universe} failed.\n")
                 return
         universe_outputs[universe] = [str(out) for out in outputs]
 
@@ -205,19 +206,19 @@ code = [
 # y = z
 # z:0 = 3
 code = [
-    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY),
-    Assignment(Variable("dbg", 0), Literal(1, "int"), Assignment.MUTATION),
-    Assignment(Variable("dbg", 1), Variable("y", 0), Assignment.MUTATION),
-    Assignment(Variable("dbg", 2), Variable("x", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(2, "int"), Assignment.MUTATION),
-    Assignment(Variable("dbg", 3), Variable("y", 0), Assignment.MUTATION),
-    Assignment(Variable("dbg", 4), Variable("z", 10), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
-    Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION),
-    Assignment(Variable("z", 0), Literal(3, "int"), Assignment.REVISION),
-    Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION),
-    Assignment(Variable("out", 1), Variable("z", 1), Assignment.MUTATION)
+    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION, 1),
+    Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY, 2),
+    Assignment(Variable("dbg", 0), Literal(1, "int"), Assignment.MUTATION, 4),
+    Assignment(Variable("dbg", 1), Variable("y", 0), Assignment.MUTATION, 5),
+    Assignment(Variable("dbg", 2), Variable("x", 0), Assignment.MUTATION, 6),
+    Assignment(Variable("z", 0), Literal(2, "int"), Assignment.MUTATION, 8),
+    Assignment(Variable("dbg", 3), Variable("y", 0), Assignment.MUTATION, 10),
+    Assignment(Variable("dbg", 4), Variable("z", 10), Assignment.MUTATION, 11),
+    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION, 13),
+    Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION, 14),
+    Assignment(Variable("z", 0), Literal(3, "int"), Assignment.REVISION, 15),
+    Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION, 17),
+    Assignment(Variable("out", 1), Variable("z", 1), Assignment.MUTATION, 18)
 ]
 output={}
 var_count = {"x": 2, "y": 1, "z": 1, "out": 2, "dbg": 5}
