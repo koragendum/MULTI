@@ -158,9 +158,9 @@ class UnaryExpression:
                 return Literal(not operand.value, 'bool')
             case "len":
                 if operand.kind == 'tuple':
-                    return len(operand)
+                    return Literal(len(operand.elements), 'int')
                 if operand.kind == 'atom':
-                    return len(operand.value)
+                    return Literal(len(operand.value), 'int')
                 raise AssertionError()
             case _:
                 raise AssertionError(f'unknown operator "{self.operator}"')
