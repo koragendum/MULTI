@@ -65,7 +65,8 @@ KEYWORDS = {
 
 wsp = re.compile(r'\s+')
 nmp = re.compile(r'\d+')
-vxp = re.compile(r'([_a-zA-Z][_a-zA-Z0-9]*\??)(:(?:0+|[+-−]\d+)|@\d+)?')
+vxp = re.compile(r'([_a-zA-Z][_a-zA-Z0-9]*\??)(:(?:0+|[+-−]\d+))?')
+# vxp = re.compile(r'([_a-zA-Z][_a-zA-Z0-9]*\??)(:(?:0+|[+-−]\d+)|@\d+)?')
 
 # We support x@0 notation for debugging.
 
@@ -238,11 +239,10 @@ class TokenStream:
 
                 index = match.group(2)
                 if index is None:
-                    value = (word, None, None)
+                    value = (word, None)
                 else:
-                    mode = 'abs' if index[0] == '@' else 'rel'
                     offset = int(index[1:])
-                    value = (word, mode, offset)
+                    value = (word, offset)
 
                 self._advance(match.group())
                 self.text = self.text[match.end():]

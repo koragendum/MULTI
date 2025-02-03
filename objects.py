@@ -1,8 +1,8 @@
 class Variable:
-    def __init__(self, name, index, source=(None, None)):
+    def __init__(self, name, index, offset=None):
         self.name = name
         self.index = index
-        self.source = source
+        self.offset = offset
 
     def _str(self, parenthesize):
         return f'{self.name}@{self.index}'
@@ -252,19 +252,20 @@ class Assignment:
     MUTATION = 0
     REVISION = 1
     PROPHECY = 2
-    UNKNOWN  = 3
 
-    def __init__(self, left, right, kind):
+    def __init__(self, left, right, kind, line=None):
         self.left = left
         self.right = right
         self.kind = kind
+        self.line = line
 
     def _str(self, parenthesize):
+        num = f'{self.line}: ' if self.line is not None else ''
         lhs = self.left._str(False)
         rhs = self.right._str(False)
         if parenthesize:
-            return f'({lhs} = {rhs})'
-        return f'{lhs} = {rhs}'
+            return f'({num}{lhs} = {rhs})'
+        return f'{num}{lhs} = {rhs}'
 
     def __str__(self):
         return self._str(False)

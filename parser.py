@@ -322,8 +322,8 @@ def _reify(expr):
             return ParseFailure('keyword only valid at head of statement', expr)
 
     elif expr.kind == 'variable':
-        name, mode, offset = expr.value
-        return Variable(name, None, (mode, offset))
+        name, offset = expr.value
+        return Variable(name, None, offset)
 
     elif expr.kind == 'number':
         return Literal(expr.value, 'int')
@@ -424,17 +424,27 @@ def reify(statement):
     assert statement.root.text == '='
     assert statement.left().kind == 'variable'
 
-    name, mode, offset = statement.left().value
-    lefthand = Variable(name, None, (mode, offset))
+    name, offset = statement.left().value
+    lefthand = Variable(name, None, offset)
 
     righthand = _reify(statement.right())
     if isinstance(righthand, ParseFailure):
         return righthand
 
-    return (Assignment(lefthand, righthand, Assignment.UNKNOWN), statement.left().line)
+    if offset is None:
+        kind = Assignment.MUTATION
+    else:
+        kind = Assignment.PROPHECY if offset > 0 else Assignment.REVISION
+
+    return Assignment(lefthand, righthand, kind, statement.left().line)
 
 def reindex(statements):
-    pass
+    count = {}
+    for assn in statements:
+        if not isinstance(assn, Assignment):
+            raise NotImplementedError()
+        lhs = assn.left.name
+
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -462,5 +472,4 @@ if __name__ == '__main__':
             if isinstance(reified, ParseFailure):
                 reified.show(stream.log())
             else:
-                reified, lnum = reified
-                print(f'{lnum}: {reified}')
+                print(reified)
