@@ -57,6 +57,8 @@ KEYWORDS = {
     'or':     'or',
     'not':    'not',
     'len':    'len',
+    'true':   None,
+    'false':  None,
     'die':    None,
     'assert': None,
 }
@@ -84,53 +86,11 @@ class Token:
         value = repr(self.value) if self.kind == 'atom' else self.value
         return f'{tk} {value} : {self.kind} @ {self.line},{self.column}'
 
+    def extract(self):
+        return [self]
+
     def show(self):
         print(self)
-
-class ParseTree:
-    def __init__(self, root, children):
-        self.root = root
-        self.children = children
-
-    def __str__(self):
-        tr = "\x1B[38;5;129mTree\x1B[39m"
-        return f"{tr} of {self.root}"
-
-    def __len__(self):
-        return len(self.children)
-
-    def __iter__(self):
-        return iter(self.children)
-
-    def __getitem__(self, x):
-        return self.children[x]
-
-    def show(self, top=True):
-        lines = [str(self)]
-        num_children = len(self.children)
-        for idx, child in enumerate(self.children):
-            last = (idx + 1 == num_children)
-            mark = "\u2514" if last else "\u251C"
-            mark = f"\x1B[2m{mark}\u2500\x1B[22m "
-            if isinstance(child, Token):
-                lines.append(mark + str(child))
-            else:
-                block = child.show(top=False)
-                lines.append(mark + block[0])
-                margin = "   " if last else "\x1B[2m\u2502\x1B[22m  "
-                for ln in block[1:]:
-                    lines.append(margin + ln)
-        if top: print("\n".join(lines))
-        return lines
-
-def extract_tokens(obj):
-    if isinstance(obj, Token):
-        return [obj]
-    if isinstance(obj, ParseTree):
-        return sum((extract_tokens(x) for x in obj.children), [])
-    if isinstance(obj, (list, tuple)):
-        return sum((extract_tokens(x) for x in obj), [])
-    raise RuntimeError(f"unable to extract tokens from {type(obj)}")
 
 class ParseFailure:
     def __init__(self, msg, hi=None, note=None):
@@ -152,7 +112,10 @@ class ParseFailure:
         if self.highlight is None:
             print(f"\x1B[91merror\x1B[39m: {self.message}")
             return
-        tokens = extract_tokens(self.highlight)
+        if isinstance(self.highlight, tuple):
+            tokens = sum((x.extract() for x in self.highlight), [])
+        else:
+            tokens = self.highlight.extract()
         lnum = tokens[0].line
         print(f"\x1B[91merror\x1B[39m: line {lnum}: " + self.message)
         for idx, tok in enumerate(tokens):
@@ -367,7 +330,7 @@ class TokenStream:
             if self.text[0] == ':':
                 match = nmp.match(self.text[1:])
                 if match is None:
-                    note = 'a numeric literal is required after “:”'
+                    note = 'a signed numeric literal is required after “:”'
                 else:
                     numr = match.group()
                     note = f'a sign is required: “\x1B[94m+\x1B[39m{numr}”' \

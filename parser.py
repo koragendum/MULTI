@@ -1,4 +1,5 @@
 from lexer import *
+from objects import *
 
 # Arranged from high to low precedence. Unary operators are 'prefix'
 #   or 'postfix', and binary operators are 'left' or 'right' associative.
@@ -13,6 +14,52 @@ OPERATORS = [
     ('left',   ['eq', 'neq', 'geq', 'leq', 'gt', 'lt']),
     ('left',   ['sepr'                               ]),
 ]
+
+class ParseTree:
+    def __init__(self, root, children):
+        self.root = root
+        self.children = children
+        self.kind = 'tree'
+
+    def __str__(self):
+        tr = "\x1B[38;5;129mTree\x1B[39m"
+        return f"{tr} of {self.root}"
+
+    def __len__(self):
+        return len(self.children)
+
+    def __iter__(self):
+        return iter(self.children)
+
+    def __getitem__(self, x):
+        return self.children[x]
+
+    def left(self):
+        return self.children[0]
+
+    def right(self):
+        return self.children[1]
+
+    def extract(self):
+        return sum((x.extract() for x in obj.children), [])
+
+    def show(self, top=True):
+        lines = [str(self)]
+        num_children = len(self.children)
+        for idx, child in enumerate(self.children):
+            last = (idx + 1 == num_children)
+            mark = "\u2514" if last else "\u251C"
+            mark = f"\x1B[2m{mark}\u2500\x1B[22m "
+            if isinstance(child, Token):
+                lines.append(mark + str(child))
+            else:
+                block = child.show(top=False)
+                lines.append(mark + block[0])
+                margin = "   " if last else "\x1B[2m\u2502\x1B[22m  "
+                for ln in block[1:]:
+                    lines.append(margin + ln)
+        if top: print("\n".join(lines))
+        return lines
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -115,7 +162,7 @@ def parse_operators(seq):
 
 def parse_interior(container, seq):
     """
-    container -- the context in which seq appears ('root', 'parentheses', or 'brackets')
+    container -- the context in which seq appears ('root', 'parens', or 'brackets')
     seq       -- a list of tokens and/or ParseTrees guaranteed to not include any delimiters
     """
     if len(seq) == 0:
@@ -198,11 +245,6 @@ def parse_expression(stream):
     return parse_interior('root', seq)
 
 def parse_statement(stream):
-    # Statements look like
-    #   variable eq expression
-    #   assert expression
-    #   die
-
     while True:
         token = next(stream)
         if token is None:
@@ -247,7 +289,10 @@ def parse_statement(stream):
                 return ParseTree(token, [expr])
 
         elif token.value == 'die':
-            return token
+            return ParseTree(token, [])
+
+        else:
+            failure = token
 
     else:
         failure = token
@@ -257,6 +302,58 @@ def parse_statement(stream):
         note = f'statements must be “{i("variable")} = {i("expression")}”,' \
                 f' “assert {i("expression")}”, or “die”'
     return ParseFailure('invalid statement', failure, note)
+
+def _reify(expr):
+    if expr.kind == 'keyword':
+        if expr.value == 'true':
+            return Literal(True, 'bool')
+
+        elif expr.value == 'false':
+            return Literal(False, 'bool')
+
+        else:
+            return ParseFailure('keyword only valid at head of statement', expr)
+
+    elif expr.kind == 'variable':
+        name, mode, offset = expr.value
+        return Variable(name, None, (mode, offset))
+
+    elif expr.kind == 'number':
+        return Literal(expr.value, 'int')
+
+    elif expr.kind == 'atom':
+        return Literal(expr.value, 'atom')
+
+    elif expr.kind == 'symbol':
+        raise AssertionError()
+
+    elif expr.kind == 'tree':
+        if expr.root == 'brackets':
+            pass
+
+        assert expr.root.kind == 'symbol'
+        # TODO
+
+def reify(statement):
+    if statement.root.kind == 'keyword':
+        if statement.root.value == 'die':
+            return None # TODO
+        if statement.root.value == 'assign':
+            return None # TODO
+        raise AssertionError()
+
+    assert statement.root.kind == 'symbol'
+    assert statement.root.text == '='
+    assert statement.left.kind == 'variable'
+
+    name, mode, offset = statement.left.value
+    lefthand = Variable(name, None, (mode, offset))
+
+    righthand = _reify(statement.right)
+    if isinstance(righthand, ParseFailure):
+        return righthand
+
+    return Assignment(lefthand, righthand, Assignment.UNKNOWN)
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -280,3 +377,4 @@ if __name__ == '__main__':
             stream.clear_line()
         else:
             result.show()
+            # reify(result)
