@@ -39,9 +39,6 @@ class Undefined:
     def __str__(self):
         return 'undefined'
 
-    def __str__(self):
-        return str(self.value)
-
     def __eq__(self, other):
         if isinstance(other, Undefined):
             raise AssertionError('...who knows?')
@@ -261,3 +258,13 @@ class Assignment:
         self.left = left
         self.right = right
         self.kind = kind
+
+    def _str(self, parenthesize):
+        lhs = self.left._str(False)
+        rhs = self.right._str(False)
+        if parenthesize:
+            return f'({lhs} = {rhs})'
+        return f'{lhs} = {rhs}'
+
+    def __str__(self):
+        return self._str(False)

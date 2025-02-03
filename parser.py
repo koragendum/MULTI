@@ -12,7 +12,9 @@ OPERATORS = [
     ('left',   ['mul', 'div', 'mod'                  ]),
     ('left',   ['add', 'sub'                         ]),
     ('left',   ['eq', 'neq', 'geq', 'leq', 'gt', 'lt']),
-    ('left',   ['sepr'                               ]),
+    ('left',   ['and'                                ]),
+    ('left',   ['or'                                 ]),
+    ('right',  ['sepr'                               ]),
 ]
 
 class ParseTree:
@@ -38,10 +40,10 @@ class ParseTree:
         return self.children[0]
 
     def right(self):
-        return self.children[1]
+        return self.children[-1]
 
     def extract(self):
-        return sum((x.extract() for x in obj.children), [])
+        return sum((x.extract() for x in self.children), [])
 
     def show(self, top=True):
         lines = [str(self)]
@@ -135,9 +137,10 @@ def _parse_operators(seq, min_precedence):
                 return ParseFailure('binary operator missing righthand argument', op)
 
         else:
-            precedence, rassoc = binary_ops[None]
-            if precedence < min_precedence:
-                break
+            return ParseFailure('missing operator', seq[index])
+            # precedence, rassoc = binary_ops[None]
+            # if precedence < min_precedence:
+            #     break
 
         rhs_parse = _parse_operators(seq[index:], precedence + (0 if rassoc else 1))
         if rhs_parse is None:
@@ -147,7 +150,11 @@ def _parse_operators(seq, min_precedence):
         rhs, num_tokens = rhs_parse
 
         index += num_tokens
-        lhs = ParseTree(op, [lhs, rhs])
+        if is_symbol and op.value == 'sepr':
+            rightl = rhs.children if (rhs.kind == 'tree' and rhs.root == 'list') else [rhs]
+            lhs = ParseTree('list', [lhs] + rightl)
+        else:
+            lhs = ParseTree(op, [lhs, rhs])
 
     return (lhs, index)
 
@@ -329,31 +336,105 @@ def _reify(expr):
 
     elif expr.kind == 'tree':
         if expr.root == 'brackets':
-            pass
+            if len(expr) == 0:
+                return Tuple([])
+
+            assert len(expr) == 1
+            child = expr.left()
+            if child.kind == 'tree' and child.root == 'list':
+                reified = []
+                for item in child:
+                    inner = _reify(item)
+                    if isinstance(inner, ParseFailure):
+                        return inner
+                    reified.append(inner)
+                return Tuple(reified)
+
+            else:
+                inner = _reify(child)
+                if isinstance(inner, ParseFailure):
+                    return inner
+                return Tuple([inner])
+
+        if expr.root == 'list':
+            return ParseFailure('item lists must be bracketed', expr)
 
         assert expr.root.kind == 'symbol'
-        # TODO
+
+        match expr.root.value:
+            # polyadic
+            case 'add' | 'sub':
+                if len(expr) == 1:
+                    inner = _reify(expr.left())
+                    if isinstance(inner, ParseFailure):
+                        return inner
+                    return UnaryExpression(inner, expr.root.value)
+
+                if len(expr) == 2:
+                    lhs = _reify(expr.left())
+                    if isinstance(lhs, ParseFailure):
+                        return lhs
+                    rhs = _reify(expr.right())
+                    if isinstance(rhs, ParseFailure):
+                        return rhs
+                    return BinaryExpression(lhs, rhs, expr.root.value)
+
+                raise AssertionError()
+
+            # unary
+            case 'not' | 'len' | 'def':
+                assert len(expr) == 1
+                inner = _reify(expr.left())
+                if isinstance(inner, ParseFailure):
+                    return inner
+                return UnaryExpression(inner, expr.root.value)
+
+            # binary
+            case 'idx' | 'mul' | 'div' | 'mod' \
+                | 'eq' | 'neq' | 'geq' | 'leq' | 'gt' | 'lt' \
+                | 'and' | 'or':
+                assert len(expr) == 2
+                lhs = _reify(expr.left())
+                if isinstance(lhs, ParseFailure):
+                    return lhs
+                rhs = _reify(expr.right())
+                if isinstance(rhs, ParseFailure):
+                    return rhs
+                return BinaryExpression(lhs, rhs, expr.root.value)
+
+            case _:
+                raise AssertionError()
+
+    else:
+        raise AssertionError()
 
 def reify(statement):
+    # returns ParseFailure or (Assignment, line number)
+
     if statement.root.kind == 'keyword':
         if statement.root.value == 'die':
-            return None # TODO
-        if statement.root.value == 'assign':
-            return None # TODO
+            raise NotImplementedError() # TODO
+
+        if statement.root.value == 'assert':
+            raise NotImplementedError() # TODO
+
         raise AssertionError()
 
     assert statement.root.kind == 'symbol'
     assert statement.root.text == '='
-    assert statement.left.kind == 'variable'
+    assert statement.left().kind == 'variable'
 
-    name, mode, offset = statement.left.value
+    name, mode, offset = statement.left().value
     lefthand = Variable(name, None, (mode, offset))
 
-    righthand = _reify(statement.right)
+    righthand = _reify(statement.right())
     if isinstance(righthand, ParseFailure):
         return righthand
 
-    return Assignment(lefthand, righthand, Assignment.UNKNOWN)
+    return (Assignment(lefthand, righthand, Assignment.UNKNOWN), statement.left().line)
+
+def reindex(statements):
+    pass
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -377,4 +458,9 @@ if __name__ == '__main__':
             stream.clear_line()
         else:
             result.show()
-            # reify(result)
+            reified = reify(result)
+            if isinstance(reified, ParseFailure):
+                reified.show(stream.log())
+            else:
+                reified, lnum = reified
+                print(f'{lnum}: {reified}')
