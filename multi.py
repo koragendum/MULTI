@@ -11,6 +11,8 @@ def prompt():
         stripped = line.strip()
         if stripped in ('exit', 'quit'):
             exit()
+        if stripped == 'clear':
+            statements.clear()
         if stripped == 'show':
             count = reindex(statements)
             for s in statements:
