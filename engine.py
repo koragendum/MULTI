@@ -57,7 +57,7 @@ class Environment:
             f"Variable Histories:\n  {str_var_histories(self.var_histories)}\n" + \
             f"Code History:\n  [{",\n   ".join(str(elem) for elem in self.code_history)}]"
 
-MAX_SPAWN = 1024
+MAX_SPAWN = 10024
 total_spawned = 0
 
 def run(*args, **kwargs):

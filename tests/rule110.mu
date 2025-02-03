@@ -1,6 +1,7 @@
 // comments can be written with “//” or “--”
 
-input = [10, [1, 1, 1, 0, 0, 1, 0, 1]]
+-- input = [100, [1, 1, 1, 0, 0, 1, 0, 1]]
+input = [40, [1]]
 _:+1 = input.0 = 0
 _ = false
 
@@ -9,7 +10,7 @@ _:+1 = factory.0 > 1
 _ = false
 factory:0 = [factory.0 + 1]
 
-s = [1, [0, 0] + input + [0, 0], factory]
+s = [1, [0, 0] + input.1 + [0, 0], factory]
 r = s.1
 i = s.0
 

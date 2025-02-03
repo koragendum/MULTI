@@ -196,7 +196,7 @@ class BinaryExpression:
             if right.value < 0 or not right.value < len(left):
                 return UNDEFINED
             return left.elements[right.value]
-        assert left.kind == right.kind
+        assert left.kind == right.kind, f"{left.kind} != {right.kind}, {self.operator}"
         kind = left.kind
         match self.operator:
             case "add":
