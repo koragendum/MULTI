@@ -186,43 +186,44 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 return
         universe_outputs[universe] = [str(out) for out in outputs]
 
-# Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
-#
-# x = 1
-# x:+1 = 2
-# x = 2
-# x:0 = 3
-code = [
-    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.PROPHECY),
-    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
-    Assignment(Variable("x", 1), Literal(3, "int"), Assignment.REVISION)]
-# run_code(code, Environment())
+if __name__ == "__main__":
+    # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
+    #
+    # x = 1
+    # x:+1 = 2
+    # x = 2
+    # x:0 = 3
+    code = [
+        Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
+        Assignment(Variable("x", 1), Literal(2, "int"), Assignment.PROPHECY),
+        Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
+        Assignment(Variable("x", 1), Literal(3, "int"), Assignment.REVISION)]
+    # run_code(code, Environment())
 
-# x = 1
-# x:+1 = y:+1
-# z = 2
-# x = 2
-# y = z
-# z:0 = 3
-code = [
-    Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION, 1),
-    Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY, 2),
-    Assignment(Variable("dbg", 0), Literal(1, "int"), Assignment.MUTATION, 4),
-    Assignment(Variable("dbg", 1), Variable("y", 0), Assignment.MUTATION, 5),
-    Assignment(Variable("dbg", 2), Variable("x", 0), Assignment.MUTATION, 6),
-    Assignment(Variable("z", 0), Literal(2, "int"), Assignment.MUTATION, 8),
-    Assignment(Variable("dbg", 3), Variable("y", 0), Assignment.MUTATION, 10),
-    Assignment(Variable("dbg", 4), Variable("z", 10), Assignment.MUTATION, 11),
-    Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION, 13),
-    Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION, 14),
-    Assignment(Variable("z", 0), Literal(3, "int"), Assignment.REVISION, 15),
-    Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION, 17),
-    Assignment(Variable("out", 1), Variable("z", 1), Assignment.MUTATION, 18)
-]
-output={}
-var_count = {"x": 2, "y": 1, "z": 1, "out": 2, "dbg": 5}
-run_code_to_completion(code, Environment(var_count), output)
-for _, outputs in output.items():
-    for out in outputs:
-        print(out)
+    # x = 1
+    # x:+1 = y:+1
+    # z = 2
+    # x = 2
+    # y = z
+    # z:0 = 3
+    code = [
+        Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION, 1),
+        Assignment(Variable("x", 1), Variable("y", 0), Assignment.PROPHECY, 2),
+        Assignment(Variable("dbg", 0), Literal(1, "int"), Assignment.MUTATION, 4),
+        Assignment(Variable("dbg", 1), Variable("y", 0), Assignment.MUTATION, 5),
+        Assignment(Variable("dbg", 2), Variable("x", 0), Assignment.MUTATION, 6),
+        Assignment(Variable("z", 0), Literal(2, "int"), Assignment.MUTATION, 8),
+        Assignment(Variable("dbg", 3), Variable("y", 0), Assignment.MUTATION, 10),
+        Assignment(Variable("dbg", 4), Variable("z", 10), Assignment.MUTATION, 11),
+        Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION, 13),
+        Assignment(Variable("y", 0), Variable("z", 0), Assignment.MUTATION, 14),
+        Assignment(Variable("z", 0), Literal(3, "int"), Assignment.REVISION, 15),
+        Assignment(Variable("out", 0), Variable("z", 0), Assignment.MUTATION, 17),
+        Assignment(Variable("out", 1), Variable("z", 1), Assignment.MUTATION, 18)
+    ]
+    output={}
+    var_count = {"x": 2, "y": 1, "z": 1, "out": 2, "dbg": 5}
+    run_code_to_completion(code, Environment(var_count), output)
+    for _, outputs in output.items():
+        for out in outputs:
+            print(out)
