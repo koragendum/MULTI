@@ -229,9 +229,9 @@ class TokenStream:
                 if word in KEYWORDS:
                     self._advance(word)
                     self.text = self.text[match.end(1):]
-                    symbol = KEYWORDS[word]
+                    symbol = KEYWORDS[word.lower()]
                     if symbol is None:
-                        token = Token(word, 'keyword', word, ln, co)
+                        token = Token(word.lower(), 'keyword', word, ln, co)
                     else:
                         token = Token(symbol, 'symbol', word, ln, co)
                     self.buffer.append(token)
