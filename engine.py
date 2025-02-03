@@ -128,8 +128,7 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if next_code is not None:
                     next_code.pending_dbgs.append(dbg)
             else:
-                if env.verbose:
-                    sys.stderr.write(f"dbg(u:{universe},l:{dbg[0]}): now known: {str(dbg[1])} = {str(val)}\n")
+                sys.stderr.write(f"dbg(u:{universe},l:{dbg[0]}): now known: {str(dbg[1])} = {str(val)}\n")
 
         return True
 
@@ -153,12 +152,10 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if stmt.left.name == dbg_name:
                     if val is None:
                         next_code_history.pending_dbgs.append((stmt.line, stmt.right))
-                        if env.verbose:
-                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {str(stmt.right)} = unknown\n")
+                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {str(stmt.right)} = unknown\n")
                     else:
                         output = str(val) if str(stmt.right) == str(val) else f"{str(stmt.right)} = {str(val)}"
-                        if env.verbose:
-                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {output}\n")
+                        sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): {output}\n")
 
                 if val is not None and not val.defined(env):
                     val = None
