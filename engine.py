@@ -57,7 +57,19 @@ class Environment:
             f"Variable Histories:\n  {str_var_histories(self.var_histories)}\n" + \
             f"Code History:\n  [{",\n   ".join(str(elem) for elem in self.code_history)}]"
 
-def run_code_to_completion(*args, output=True, **kwargs):
+MAX_SPAWN = 1024
+total_spawned = 0
+
+def run(*args, **kwargs):
+    global total_spawned
+    total_spawned = 1
+    outputs = {}
+    run_code_to_completion(*args, outputs, **kwargs)
+    for _, msgs in outputs.items():
+        for msg in msgs:
+            print(msg)
+
+def run_code_to_completion(*args, **kwargs):
     threads = []
     try:
         run_code(*args, spawned_threads=threads, **kwargs)
@@ -66,6 +78,8 @@ def run_code_to_completion(*args, output=True, **kwargs):
             thread.join()
 
 def run_code(code, env, universe_outputs, spawned_threads, start_index=0, universe="root", out_name="out", dbg_name="dbg"):
+    global total_spawned
+
     spawn_count = 0
     def resolve_prophecies_and_pending_forks(prev_code, next_code):
         # Copy prophecies, but also try to resolve them.
@@ -91,14 +105,18 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
 
                 # Premature death of fork if `new_env` is None.
                 if new_env is not None:
-                    args = (code, new_env, universe_outputs)
-                    kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                    thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
-                    if env.verbose:
-                        sys.stderr.write(f"dbg(u:{universe},l:{fork.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
-                    spawned_threads.append(thread)
-                    thread.start()
-                    spawn_count += 1
+                    if total_spawned >= MAX_SPAWN:
+                        print('spawn limit reached', file=sys.stderr)
+                    else:
+                        args = (code, new_env, universe_outputs)
+                        kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                        thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
+                        if env.verbose:
+                            sys.stderr.write(f"dbg(u:{universe},l:{fork.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {fork.left.name}@{fork.left.index} = {fork_value}\n")
+                        spawned_threads.append(thread)
+                        thread.start()
+                        spawn_count += 1
+                        total_spawned += 1
             elif next_code is not None:
                 next_code.pending_forks.append(fork)
 
@@ -160,13 +178,17 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
 
                     # Premature death of fork if `new_env` is None.
                     if new_env is not None:
-                        args = (code, new_env, universe_outputs)
-                        kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                        if env.verbose:
-                            sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
-                        spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
-                        spawned_threads[-1].start()
-                        spawn_count += 1
+                        if total_spawned >= MAX_SPAWN:
+                            print('spawn limit reached', file=sys.stderr)
+                        else:
+                            args = (code, new_env, universe_outputs)
+                            kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                            if env.verbose:
+                                sys.stderr.write(f"dbg(u:{universe},l:{stmt.line}): Forking to {universe}-{spawn_count} at line {fork_line}, {stmt.left.name}@{stmt.left.index} = {fork_value}\n")
+                            spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
+                            spawned_threads[-1].start()
+                            spawn_count += 1
+                            total_spawned += 1
             case Assignment.PROPHECY:
                 assert stmt.left.name not in env.var_histories or len(env.var_histories[stmt.left.name]) <= stmt.left.index, \
                     "Prophecy about event in the past."
@@ -196,8 +218,6 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         universe_outputs[universe] = [str(out) for out in outputs]
 
 if __name__ == "__main__":
-    # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
-    #
     # x = 1
     # x:+1 = 2
     # x = 2
@@ -206,8 +226,8 @@ if __name__ == "__main__":
         Assignment(Variable("x", 0), Literal(1, "int"), Assignment.MUTATION),
         Assignment(Variable("x", 1), Literal(2, "int"), Assignment.PROPHECY),
         Assignment(Variable("x", 1), Literal(2, "int"), Assignment.MUTATION),
-        Assignment(Variable("x", 1), Literal(3, "int"), Assignment.REVISION)]
-    # run_code(code, Environment())
+        Assignment(Variable("x", 1), Literal(3, "int"), Assignment.REVISION)
+    ]
 
     # x = 1
     # x:+1 = y:+1

@@ -32,11 +32,7 @@ if argc == 1:
         statements.append(reified)
 
     count = reindex(statements)
-    out = {}
-    run_code_to_completion(statements, Environment(count), out)
-    for _, msgs in out.items():
-        for msg in msgs:
-            print(msg)
+    run(statements, Environment(count))
     sys.exit(0)
 
 def prompt():
@@ -55,11 +51,7 @@ def prompt():
             continue
         if stripped == 'run':
             count = reindex(statements)
-            out = {}
-            run_code_to_completion(statements, Environment(count), out)
-            for _, msgs in out.items():
-                for msg in msgs:
-                    print(msg)
+            run(statements, Environment(count))
             continue
         return line + "\n"
 
