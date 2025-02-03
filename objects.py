@@ -195,7 +195,7 @@ class BinaryExpression:
             assert left.kind == 'tuple' and right.kind == 'int'
             if right.value < 0 or not right.value < len(left):
                 return UNDEFINED
-            return left[right.value]
+            return left.elements[right.value]
         assert left.kind == right.kind
         kind = left.kind
         match self.operator:
