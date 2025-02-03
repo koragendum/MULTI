@@ -261,11 +261,16 @@ class Assignment:
 
     def _str(self, parenthesize):
         num = f'{self.line}: ' if self.line is not None else ''
+        knd = {
+            Assignment.MUTATION: 'mut',
+            Assignment.REVISION: 'rev',
+            Assignment.PROPHECY: 'pro',
+        }[self.kind]
         lhs = self.left._str(False)
         rhs = self.right._str(False)
         if parenthesize:
-            return f'({num}{lhs} = {rhs})'
-        return f'{num}{lhs} = {rhs}'
+            return f'({num}{knd} {lhs} = {rhs})'
+        return f'{num}{knd} {lhs} = {rhs}'
 
     def __str__(self):
         return self._str(False)

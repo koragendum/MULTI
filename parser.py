@@ -438,13 +438,43 @@ def reify(statement):
 
     return Assignment(lefthand, righthand, kind, statement.left().line)
 
+def _reindex(obj, count):
+    if isinstance(obj, Variable):
+        if obj.name not in count:
+            count[obj.name] = -1
+        obj.index = count[obj.name] + (0 if obj.offset is None else obj.offset)
+    if isinstance(obj, Tuple):
+        for elem in obj.elements:
+            _reindex(elem, count)
+    if isinstance(obj, UnaryExpression):
+        _reindex(obj.operand, count)
+    if isinstance(obj, BinaryExpression):
+        _reindex(obj.left, count)
+        _reindex(obj.right, count)
+
 def reindex(statements):
     count = {}
     for assn in statements:
         if not isinstance(assn, Assignment):
             raise NotImplementedError()
-        lhs = assn.left.name
 
+        _reindex(assn.right, count)
+
+        if assn.kind == Assignment.MUTATION:
+            x = count.get(assn.left.name, -1) + 1
+            assn.left.index = x
+            count[assn.left.name] = x
+
+        if assn.kind == Assignment.REVISION:
+            assn.left.index = count.get(assn.left.name, -1) + assn.left.offset
+
+        if assn.kind == Assignment.PROPHECY:
+            assn.left.index = count.get(assn.left.name, -1) + assn.left.offset
+
+    for name in count:
+        count[name] += 1
+
+    return count
 
 #~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -458,6 +488,7 @@ if __name__ == '__main__':
         return line + "\n"
 
     stream = TokenStream("", prompt)
+    statements = []
 
     while True:
         result = parse_statement(stream)
@@ -472,4 +503,7 @@ if __name__ == '__main__':
             if isinstance(reified, ParseFailure):
                 reified.show(stream.log())
             else:
+                statements.append(reified)
+                count = reindex(statements)
                 print(reified)
+                print(count)
