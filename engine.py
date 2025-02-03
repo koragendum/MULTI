@@ -1,5 +1,6 @@
 from objects import *
 import threading
+import sys
 
 class CodeHistoryElement:
     def __init__(self):
@@ -28,7 +29,11 @@ class Environment:
         self.code_history = []
         self.var_count = var_count
 
-    def fork(self, var_name, var_index, new_value):
+    def fork(self, var_name, var_index, new_value, universe):
+        if var_name not in self.var_histories or var_index < 0:
+            # Signals to caller that fork insta-dies because it's going to an undefined point.
+            sys.stderr.write(f"dbg(u:{universe},l:{len(self.code_history)}): Fork happens before big-bang, travel will fail.\n")
+            return None, None
         assert var_name in self.var_histories, "Reference to past event that never occurred."
         assert var_index < len(self.var_histories[var_name]), "Trying to fork to future event."
         code_index = self.var_histories[var_name][var_index].code_index
@@ -68,7 +73,9 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
             if prophecy_value is not None and var.name in env.var_histories and len(env.var_histories[var.name]) > var.index:
                 future_value = env.var_histories[var.name][var.index].expression.eval(env)
                 if future_value is not None:
-                    assert future_value == prophecy_value, f"prophecy violated: {future_value} ≠ {prophecy_value}"
+                    if future_value != prophecy_value:
+                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Prophecy violated: {future_value} ≠ {prophecy_value}\n")
+                        return False
                     continue
             if next_code is not None:
                 next_code.prophecies.append((var, prophecy_value or expression))
@@ -77,13 +84,17 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         for fork in prev_code.pending_forks:
             fork_value = fork.right.eval(env)
             if fork_value is not None:
-                new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value)
-                args = (code, new_env, universe_outputs)
-                kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
-                spawned_threads.append(thread)
-                thread.start()
-                spawn_count += 1
+                new_env, code_index = env.fork(fork.left.name, fork.left.index, fork_value, universe)
+
+                # Premature death of fork if `new_env` is None.
+                if new_env is not None:
+                    args = (code, new_env, universe_outputs)
+                    kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                    thread = threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs)
+                    sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Forking to {universe}-{spawn_count} at line {code_index}, {fork.left.name} = {fork_value}\n")
+                    spawned_threads.append(thread)
+                    thread.start()
+                    spawn_count += 1
             elif next_code is not None:
                 next_code.pending_forks.append(fork)
 
@@ -95,7 +106,9 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                 if next_code is not None:
                     next_code.pending_dbgs.append(dbg)
             else:
-                print(f"dbg(u:{universe},l:{dbg[0]}): {str(val)}")
+                sys.stderr.write(f"dbg(u:{universe},l:{dbg[0]}): {str(val)}\n")
+
+        return True
 
     for i, stmt in enumerate(code[start_index:]):
         next_code_history = CodeHistoryElement()
@@ -104,7 +117,8 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
         # executing the stmt, otherwise a fork that breaks a prophecy would not
         # get caught.
         if len(env.code_history) != 0:
-            resolve_prophecies_and_pending_forks(env.code_history[-1], next_code_history)
+            if not resolve_prophecies_and_pending_forks(env.code_history[-1], next_code_history):
+                return
 
         match stmt.kind:
             case Assignment.MUTATION:
@@ -113,12 +127,12 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                     "Mutation to event in wrong timeline position."
 
                 if stmt.left.name == dbg_name:
-                    print(f"dbg(u:{universe},l:{i+start_index}): {str(stmt.right)}")
+                    sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): {str(stmt.right)}\n")
                     val = stmt.right.eval(env)
                     if val is None:
                         next_code_history.pending_dbgs.append((i+start_index, stmt.right))
                     else:
-                        print(f"dbg(u:{universe},l:{i+start_index}): {str(val)}")
+                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): {str(val)}\n")
 
                 if stmt.left.index == 0:
                     env.var_histories[stmt.left.name] = [VarHistoryElement(stmt.right.eval(env) or stmt.right, len(env.code_history))]
@@ -126,20 +140,22 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
                     # Try to eval lhs. If it can't be evaluated then just take it as is.
                     env.var_histories[stmt.left.name].append(VarHistoryElement(stmt.right.eval(env) or stmt.right, i+start_index))
             case Assignment.REVISION:
-                assert stmt.left.index >= 0, "Revision to event before big-bang."
-                assert stmt.left.name in env.var_histories, "Revision to event that never occurred."
                 assert stmt.left.index < len(env.var_histories[stmt.left.name]), "Revision to event in the future."
 
                 fork_value = stmt.right.eval(env)
                 if fork_value is None:
                     next_code_history.pending_forks.append(stmt)
                 else:
-                    new_env, code_index = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env))
-                    args = (code, new_env, universe_outputs)
-                    kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
-                    spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
-                    spawned_threads[-1].start()
-                    spawn_count += 1
+                    new_env, code_index = env.fork(stmt.left.name, stmt.left.index, stmt.right.eval(env), universe)
+
+                    # Premature death of fork if `new_env` is None.
+                    if new_env is not None:
+                        args = (code, new_env, universe_outputs)
+                        kwargs = {"start_index": code_index+1, "universe": f"{universe}-{spawn_count}", "out_name": out_name, "dbg_name": dbg_name}
+                        sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Forking to {universe}-{spawn_count} at line {code_index}, {stmt.left.name} = {fork_value}\n")
+                        spawned_threads.append(threading.Thread(target=run_code_to_completion, args=args, kwargs=kwargs))
+                        spawned_threads[-1].start()
+                        spawn_count += 1
             case Assignment.PROPHECY:
                 assert stmt.left.name not in env.var_histories or len(env.var_histories[stmt.left.name]) <= stmt.left.index, \
                     "Prophecy about event in the past."
@@ -154,13 +170,15 @@ def run_code(code, env, universe_outputs, spawned_threads, start_index=0, univer
 
     # Try one more time to resolve prophecies and pending forks.
     if len(env.code_history) != 0:
-        resolve_prophecies_and_pending_forks(env.code_history[-1], None)
+        if not resolve_prophecies_and_pending_forks(env.code_history[-1], None):
+            return
 
     # TODO: if something in the output is indeterminate, fail this universe.
     if out_name in env.var_histories:
         outputs = [out.expression.eval(env) for out in env.var_histories[out_name]]
         if any(output is None for output in outputs):
-            assert False, f"Indeterminate output, universe {universe} failed."
+            sys.stderr.write(f"dbg(u:{universe},l:{i+start_index}): Indeterminate output, universe {universe} failed.\n")
+            return
         universe_outputs[universe] = [str(out) for out in outputs]
 
 # Do parsing, and lexing, generate a list of stmts, each stmt is an AST.
