@@ -38,7 +38,11 @@ if argc == 1:
 def prompt():
     while True:
         print("\x1B[2m>\x1B[22m", end=' ')
-        line = input()
+        try:
+            line = input()
+        except (KeyboardInterrupt, EOFError):
+            print('\r', end='', file=sys.stderr)
+            exit()
         stripped = line.strip()
         if stripped in ('exit', 'quit'):
             exit()
@@ -49,9 +53,12 @@ def prompt():
             for s in statements:
                 print(s)
             continue
-        if stripped == 'run':
+        if stripped in ('run', 'go'):
             count = reindex(statements)
-            run(statements, Environment(count))
+            try:
+                run(statements, Environment(count))
+            except KeyboardInterrupt:
+                print('interrupted', file=sys.stderr)
             continue
         return line + "\n"
 
